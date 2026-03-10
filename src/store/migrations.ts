@@ -88,6 +88,29 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_messages_session
+        ON messages(session_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_metrics_name_ts
+        ON metrics(metric_name, timestamp);
+
+      CREATE TABLE IF NOT EXISTS memory_nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        gist TEXT NOT NULL,
+        content TEXT,
+        is_dir INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(session_id, path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_session_path
+        ON memory_nodes(session_id, path);
+    `,
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

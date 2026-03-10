@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
+import { C, G } from "../theme.js";
+import { formatDuration } from "../format.js";
 import type { SleepManager } from "../../scheduler/sleep-manager.js";
 import type { TriggerExpression } from "../../scheduler/triggers/types.js";
 
@@ -10,7 +12,6 @@ interface SleepPanelProps {
 export function SleepPanel({ sleepManager }: SleepPanelProps) {
   const [now, setNow] = useState(Date.now());
 
-  // Update every second for countdown
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
@@ -32,21 +33,23 @@ export function SleepPanel({ sleepManager }: SleepPanelProps) {
       flexGrow={1}
       paddingX={2}
     >
-      <Text color="yellow" bold>
-        Agent Sleeping
+      <Text color={C.primary} bold>
+        {G.brand} SLEEPING
       </Text>
-      <Text color="gray">
-        Reason: {session.trigger.sleepReason}
+      <Text color={C.dim}>
+        {session.trigger.sleepReason}
       </Text>
-      <Text color="gray">Elapsed: {elapsedStr}</Text>
+      <Text color={C.primary}>
+        elapsed {elapsedStr}
+      </Text>
       {remaining !== null && remaining > 0 && (
-        <Text color="gray">
-          Deadline in: {formatDuration(remaining)}
+        <Text color={C.primary}>
+          wake in {formatDuration(remaining)}
         </Text>
       )}
 
       <Box marginTop={1} flexDirection="column">
-        <Text bold>Active Triggers:</Text>
+        <Text color={C.primary} bold>triggers:</Text>
         <TriggerDisplay
           expression={session.trigger.expression}
           satisfiedLeaves={session.trigger.satisfiedLeaves}
@@ -55,8 +58,8 @@ export function SleepPanel({ sleepManager }: SleepPanelProps) {
       </Box>
 
       <Box marginTop={1}>
-        <Text color="gray" dimColor>
-          Press Enter or type to wake manually
+        <Text color={C.dim} dimColor>
+          type to wake manually
         </Text>
       </Box>
     </Box>
@@ -75,7 +78,7 @@ function TriggerDisplay({
   if ("op" in expression) {
     return (
       <Box flexDirection="column" paddingLeft={1}>
-        <Text color="gray">
+        <Text color={C.dim}>
           {expression.op.toUpperCase()}:
         </Text>
         {expression.children.map((child, i) => (
@@ -91,8 +94,8 @@ function TriggerDisplay({
   }
 
   const satisfied = satisfiedLeaves.has(path);
-  const icon = satisfied ? "+" : "o";
-  const color = satisfied ? "green" : "gray";
+  const icon = satisfied ? G.dot : G.dotDim;
+  const color = satisfied ? C.success : C.dim;
 
   return (
     <Box paddingLeft={2}>
@@ -108,30 +111,17 @@ function describeCondition(expr: TriggerExpression): string {
 
   switch (expr.kind) {
     case "timer":
-      return `Timer: wake at ${new Date(expr.wakeAt).toLocaleTimeString()}`;
+      return `timer: ${new Date(expr.wakeAt).toLocaleTimeString()}`;
     case "process_exit":
-      return `Process exit: ${expr.processPattern ?? `PID ${expr.pid}`} on ${expr.machineId}`;
+      return `process: ${expr.processPattern ?? `PID ${expr.pid}`} on ${expr.machineId}`;
     case "metric":
-      return `Metric: ${expr.field} ${expr.comparator} ${expr.threshold}`;
+      return `metric: ${expr.field} ${expr.comparator} ${expr.threshold}`;
     case "file":
-      return `File ${expr.mode}: ${expr.path} on ${expr.machineId}`;
+      return `file ${expr.mode}: ${expr.path} on ${expr.machineId}`;
     case "resource":
-      return `Resource: ${expr.resource} ${expr.comparator} ${expr.threshold}%`;
+      return `resource: ${expr.resource} ${expr.comparator} ${expr.threshold}%`;
     case "user_message":
-      return "User message";
+      return "user message";
   }
 }
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  }
-  return `${seconds}s`;
-}

@@ -1,7 +1,7 @@
 import type { MetricPoint } from "./store.js";
 
 export interface AnalysisResult {
-  trend: "improving" | "plateau" | "diverging" | "unstable" | "insufficient_data";
+  trend: "decreasing" | "plateau" | "increasing" | "unstable" | "insufficient_data";
   slope: number;
   currentValue: number;
   meanValue: number;
@@ -61,10 +61,9 @@ export function analyzeMetric(
   if (Math.abs(slope) < slopeThreshold) {
     trend = "plateau";
   } else if (slope < 0) {
-    // For loss-like metrics, decreasing is improving
-    trend = "improving";
+    trend = "decreasing";
   } else {
-    trend = "diverging";
+    trend = "increasing";
   }
 
   return { trend, slope, currentValue, meanValue: mean, stdDev, hasNaN, hasInf };

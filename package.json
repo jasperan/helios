@@ -1,5 +1,5 @@
 {
-  "name": "helios",
+  "name": "@snoglobe/helios",
   "version": "0.1.0",
   "description": "Autonomous ML research agent TUI",
   "type": "module",
@@ -10,25 +10,42 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.tsx",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snoglobe/helios.git"
+  },
+  "keywords": ["ml", "research", "agent", "tui", "autonomous", "claude", "openai"],
+  "author": "snoglobe",
+  "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.0",
     "@hono/node-server": "^1.19.0",
     "@inkjs/ui": "^2.0.0",
+    "@mozilla/readability": "^0.6.0",
     "@openai/codex-sdk": "^0.112.0",
     "@openauthjs/openauth": "^0.4.3",
     "asciichart": "^1.5.25",
     "better-sqlite3": "^11.8.1",
     "date-fns": "^4.1.0",
+    "fullscreen-ink": "^0.1.0",
     "hono": "^4.7.0",
     "ink": "^6.0.0",
+    "ink-scroll-view": "^0.3.6",
     "ink-text-input": "^6.0.0",
+    "linkedom": "^0.18.12",
     "marked": "^15.0.0",
     "marked-terminal": "^7.3.0",
     "nanoid": "^5.1.0",
     "react": "^19.0.0",
     "ssh2": "^1.16.0",
+    "unpdf": "^1.4.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {

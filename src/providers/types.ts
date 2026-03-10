@@ -109,9 +109,36 @@ export interface ModelProvider {
   /** Interrupt the current generation */
   interrupt(session: Session): void;
 
+  /** Replace conversation history with a checkpoint briefing (context window management). */
+  resetHistory(session: Session, briefingMessage: string): void;
+
   /** Clean up session resources */
   closeSession(session: Session): Promise<void>;
+
+  /** Fetch available models (optional) */
+  fetchModels?(): Promise<ModelInfo[]>;
+
+  /** Get/set the current model */
+  currentModel: string;
+
+  /** Get/set reasoning effort */
+  reasoningEffort: ReasoningEffort;
 }
+
+// Claude: "medium" | "high" | "max"
+// OpenAI: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+// --- Constants ---
+
+/** Faux-assistant response used after a context checkpoint reset. */
+export const CHECKPOINT_ACK = "Understood. I have my memory tree and will continue working. Let me check what needs to be done.";
 
 // --- Auth Types ---
 

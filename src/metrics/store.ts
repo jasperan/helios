@@ -85,10 +85,12 @@ export class MetricStore {
     const db = getDb();
     const rows = db
       .prepare(
-        `SELECT * FROM metrics
-         WHERE task_id = ? AND metric_name = ?
-         ORDER BY timestamp ASC
-         LIMIT ?`,
+        `SELECT * FROM (
+           SELECT * FROM metrics
+           WHERE task_id = ? AND metric_name = ?
+           ORDER BY timestamp DESC
+           LIMIT ?
+         ) ORDER BY timestamp ASC`,
       )
       .all(taskId, metricName, limit) as Record<string, unknown>[];
 
@@ -108,6 +110,93 @@ export class MetricStore {
       )
       .all(taskId) as { metric_name: string }[];
     return rows.map((r) => r.metric_name);
+  }
+
+  /** Get all distinct task IDs that have metrics */
+  getTaskIds(): string[] {
+    const db = getDb();
+    const rows = db
+      .prepare("SELECT DISTINCT task_id FROM metrics")
+      .all() as { task_id: string }[];
+    return rows.map((r) => r.task_id);
+  }
+
+  /** Get all metric names across all tasks */
+  getAllMetricNames(): string[] {
+    const db = getDb();
+    const rows = db
+      .prepare("SELECT DISTINCT metric_name FROM metrics")
+      .all() as { metric_name: string }[];
+    return rows.map((r) => r.metric_name);
+  }
+
+  /** Get series for a metric name across all tasks, merged by timestamp */
+  getSeriesAcrossTasks(
+    metricName: string,
+    limit = 200,
+  ): MetricPoint[] {
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM metrics
+           WHERE metric_name = ?
+           ORDER BY timestamp DESC
+           LIMIT ?
+         ) ORDER BY timestamp ASC`,
+      )
+      .all(metricName, limit) as Record<string, unknown>[];
+
+    return rows.map((row) => ({
+      metricName: row.metric_name as string,
+      value: row.value as number,
+      step: row.step as number | undefined,
+      timestamp: row.timestamp as number,
+    }));
+  }
+
+  /** Get a summary of final metrics for a task (latest value of each metric) */
+  getTaskSummary(taskId: string): Record<string, { latest: number; min: number; max: number; count: number }> {
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT metric_name,
+                (SELECT value FROM metrics m2 WHERE m2.task_id = m1.task_id AND m2.metric_name = m1.metric_name ORDER BY timestamp DESC LIMIT 1) as latest,
+                MIN(value) as min_val,
+                MAX(value) as max_val,
+                COUNT(*) as cnt
+         FROM metrics m1
+         WHERE task_id = ?
+         GROUP BY metric_name`,
+      )
+      .all(taskId) as Record<string, unknown>[];
+
+    const summary: Record<string, { latest: number; min: number; max: number; count: number }> = {};
+    for (const row of rows) {
+      summary[row.metric_name as string] = {
+        latest: row.latest as number,
+        min: row.min_val as number,
+        max: row.max_val as number,
+        count: row.cnt as number,
+      };
+    }
+    return summary;
+  }
+
+  /** Delete all metrics for a specific task */
+  clearTask(taskId: string): number {
+    const db = getDb();
+    const result = db
+      .prepare("DELETE FROM metrics WHERE task_id = ?")
+      .run(taskId);
+    return result.changes;
+  }
+
+  /** Delete all metrics */
+  clear(): number {
+    const db = getDb();
+    const result = db.prepare("DELETE FROM metrics").run();
+    return result.changes;
   }
 
   /** Clean up metrics older than retentionDays */

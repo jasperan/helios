@@ -1,39 +1,63 @@
 import { randomUUID } from "node:crypto";
-import type {
-  ModelProvider,
-  ToolDefinition,
-  Session,
-  SessionConfig,
-  AgentEvent,
+import {
+  CHECKPOINT_ACK,
+  type ModelProvider,
+  type ModelInfo,
+  type ToolDefinition,
+  type Session,
+  type SessionConfig,
+  type AgentEvent,
+  type ReasoningEffort,
 } from "../types.js";
 import type { AuthManager } from "../auth/auth-manager.js";
+import { TransientError, isTransient, sleep } from "../retry.js";
+import { parseSSELines } from "../sse.js";
 import { SessionStore } from "../../store/session-store.js";
 import { OpenAIOAuth } from "./oauth.js";
 
 const CODEX_API_URL =
   "https://chatgpt.com/backend-api/codex/responses";
+const MODELS_API_URL =
+  "https://chatgpt.com/backend-api/models";
+const DEFAULT_MODEL = "gpt-5.4";
 
-interface ConversationMessage {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  tool_call_id?: string;
-  tool_calls?: Array<{
-    id: string;
-    type: "function";
-    function: { name: string; arguments: string };
-  }>;
-}
+// ─── Responses API types ─────────────────────────────
+
+type ContentItem =
+  | { type: "input_text"; text: string }
+  | { type: "output_text"; text: string };
+
+type ResponseItem =
+  | { type: "message"; role: "user" | "assistant"; content: ContentItem[] }
+  | { type: "function_call"; name: string; arguments: string; call_id: string }
+  | { type: "function_call_output"; call_id: string; output: string };
+
+// Internal streaming event from SSE parser
+type StreamEvent =
+  | { kind: "delta"; text: string }
+  | {
+      kind: "complete";
+      text: string;
+      toolCalls: Array<{ call_id: string; name: string; args: Record<string, unknown> }>;
+      serverToolIds: string[];
+      responseItems: ResponseItem[];
+      usage?: { input_tokens: number; output_tokens: number };
+    };
+
+// ─── Provider ────────────────────────────────────────
 
 export class OpenAIProvider implements ModelProvider {
   readonly name = "openai" as const;
   readonly displayName = "OpenAI";
+  currentModel: string = DEFAULT_MODEL;
+  reasoningEffort: ReasoningEffort = "medium";
 
   private authManager: AuthManager;
   private sessionStore: SessionStore;
   private oauth: OpenAIOAuth;
   private abortController: AbortController | null = null;
-  /** Conversation history per session for multi-turn */
-  private conversationHistory = new Map<string, ConversationMessage[]>();
+  private instructions = new Map<string, string>();
+  private conversationHistory = new Map<string, ResponseItem[]>();
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
@@ -50,7 +74,6 @@ export class OpenAIProvider implements ModelProvider {
     if (creds && !this.authManager.tokenStore.isExpired("openai"))
       return;
 
-    // Try refresh first
     if (creds?.refreshToken) {
       try {
         const tokens = await this.oauth.refresh(creds.refreshToken);
@@ -69,18 +92,63 @@ export class OpenAIProvider implements ModelProvider {
     await this.oauth.login();
   }
 
+  async fetchModels(): Promise<ModelInfo[]> {
+    const creds = await this.authManager.getCredentials("openai");
+    if (!creds?.accessToken) throw new Error("Not authenticated");
+
+    try {
+      const resp = await fetch(MODELS_API_URL, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+        },
+      });
+
+      if (!resp.ok) return this.getDefaultModels();
+
+      const data = (await resp.json()) as {
+        models?: Array<{
+          slug: string;
+          title?: string;
+          description?: string;
+        }>;
+      };
+
+      if (data.models && data.models.length > 0) {
+        return data.models.map((m) => ({
+          id: m.slug,
+          name: m.title ?? m.slug,
+          description: m.description,
+        }));
+      }
+    } catch {
+      // Ignore
+    }
+
+    return this.getDefaultModels();
+  }
+
+  private getDefaultModels(): ModelInfo[] {
+    return [
+      { id: "gpt-5.4", name: "GPT-5.4", description: "Latest flagship, recommended (~400k)" },
+      { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", description: "Codex (~400k)" },
+      { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", description: "Research preview, text-only (~400k)" },
+      { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", description: "Codex (~400k)" },
+      { id: "gpt-5.2", name: "GPT-5.2", description: "(~400k)" },
+      { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", description: "Max compute (~400k)" },
+      { id: "gpt-5.1", name: "GPT-5.1", description: "(~400k)" },
+      { id: "gpt-5.1-codex", name: "GPT-5.1 Codex", description: "Codex (~400k)" },
+    ];
+  }
+
   async createSession(config: SessionConfig): Promise<Session> {
     const session = this.sessionStore.createSession(
       "openai",
-      config.model ?? "gpt-4.1",
+      config.model ?? this.currentModel,
     );
     this.conversationHistory.set(session.id, []);
 
     if (config.systemPrompt) {
-      this.conversationHistory.get(session.id)!.push({
-        role: "system",
-        content: config.systemPrompt,
-      });
+      this.instructions.set(session.id, config.systemPrompt);
     }
 
     return session;
@@ -104,90 +172,127 @@ export class OpenAIProvider implements ModelProvider {
     if (!creds?.accessToken) throw new Error("Not authenticated");
 
     const history = this.conversationHistory.get(session.id) ?? [];
-    history.push({ role: "user", content: message });
 
-    // Agent loop: send → get response → execute tools → repeat
+    // Add user message in Responses API format
+    history.push({
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: message }],
+    });
+
+    // Agent loop: send → stream response → tool calls → repeat
+    const MAX_RETRIES = 3;
     let continueLoop = true;
     while (continueLoop) {
       continueLoop = false;
 
-      const { text, toolCalls, usage } = await this.callApi(
-        creds.accessToken,
-        history,
-        tools,
-      );
+      let result: StreamEvent & { kind: "complete" } | undefined;
+      let lastError: unknown;
 
-      if (text) {
-        yield { type: "text", text, delta: text };
-        history.push({ role: "assistant", content: text });
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delayMs = Math.min(1000 * 2 ** (attempt - 1), 15000);
+          yield { type: "text", text: `\n*[retrying in ${Math.round(delayMs / 1000)}s — attempt ${attempt + 1}/${MAX_RETRIES + 1}]*\n`, delta: `\n*[retrying in ${Math.round(delayMs / 1000)}s — attempt ${attempt + 1}/${MAX_RETRIES + 1}]*\n` };
+          await sleep(delayMs);
+        }
+
+        try {
+          result = undefined;
+          for await (const event of this.streamApi(
+            session,
+            creds.accessToken,
+            history,
+            tools,
+          )) {
+            if (event.kind === "delta") {
+              yield { type: "text", text: event.text, delta: event.text };
+            } else {
+              result = event;
+            }
+          }
+          break; // success
+        } catch (err) {
+          lastError = err;
+          if (!isTransient(err) || attempt === MAX_RETRIES) throw err;
+          // Transient error — retry
+        }
       }
 
-      if (toolCalls.length > 0) {
-        // Add assistant message with tool calls
-        history.push({
-          role: "assistant",
-          content: "",
-          tool_calls: toolCalls.map((tc) => ({
-            id: tc.id,
-            type: "function",
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.args),
-            },
-          })),
-        });
+      if (!result) throw lastError ?? new Error("No response from API");
 
-        // Execute each tool
-        for (const tc of toolCalls) {
+      // Append response items to history
+      history.push(...result.responseItems);
+
+      // Emit server-handled tool calls (web search) for UI display
+      for (const stId of result.serverToolIds) {
+        yield { type: "tool_call", id: stId, name: "web_search", args: {} };
+        yield { type: "tool_result", callId: stId, result: "(server-executed)" };
+      }
+
+      if (result.toolCalls.length > 0) {
+        for (const tc of result.toolCalls) {
           yield {
             type: "tool_call",
-            id: tc.id,
+            id: tc.call_id,
             name: tc.name,
             args: tc.args,
           };
 
           const tool = tools.find((t) => t.name === tc.name);
-          let result: string;
+          let toolResult: string;
           let isError = false;
 
           if (!tool) {
-            result = `Unknown tool: ${tc.name}`;
+            toolResult = `Unknown tool: ${tc.name}`;
             isError = true;
           } else {
             try {
-              result = await tool.execute(tc.args);
+              toolResult = await tool.execute(tc.args);
             } catch (err) {
-              result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`;
               isError = true;
             }
           }
 
-          yield { type: "tool_result", callId: tc.id, result, isError };
+          yield { type: "tool_result", callId: tc.call_id, result: toolResult, isError };
+
           history.push({
-            role: "tool",
-            content: result,
-            tool_call_id: tc.id,
+            type: "function_call_output",
+            call_id: tc.call_id,
+            output: toolResult,
           });
         }
 
-        // Continue the loop to let the model respond to tool results
         continueLoop = true;
       }
 
       if (!continueLoop) {
         yield {
           type: "done",
-          usage: usage
-            ? {
-                inputTokens: usage.input_tokens,
-                outputTokens: usage.output_tokens,
-              }
+          usage: result.usage
+            ? { inputTokens: result.usage.input_tokens, outputTokens: result.usage.output_tokens }
             : undefined,
         };
       }
     }
 
     this.conversationHistory.set(session.id, history);
+  }
+
+  resetHistory(session: Session, briefingMessage: string): void {
+    // Replace conversation history with a single exchange containing the briefing
+    this.conversationHistory.set(session.id, [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: briefingMessage }],
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: CHECKPOINT_ACK }],
+      },
+    ]);
   }
 
   interrupt(_session: Session): void {
@@ -199,64 +304,55 @@ export class OpenAIProvider implements ModelProvider {
 
   async closeSession(session: Session): Promise<void> {
     this.conversationHistory.delete(session.id);
+    this.instructions.delete(session.id);
   }
 
-  private async callApi(
+  // ─── Streaming API call ─────────────────────────────
+
+  private async *streamApi(
+    session: Session,
     accessToken: string,
-    messages: ConversationMessage[],
+    input: ResponseItem[],
     tools: ToolDefinition[],
-  ): Promise<{
-    text: string;
-    toolCalls: Array<{
-      id: string;
-      name: string;
-      args: Record<string, unknown>;
-    }>;
-    usage?: { input_tokens: number; output_tokens: number };
-  }> {
+  ): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
 
-    const toolDefs =
-      tools.length > 0
-        ? tools.map((t) => ({
-            type: "function" as const,
-            function: {
-              name: t.name,
-              description: t.description,
-              parameters: t.parameters,
-            },
-          }))
-        : undefined;
+    const functionTools = tools.map((t) => ({
+      type: "function" as const,
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+      strict: false,
+    }));
+
+    // Include OpenAI's built-in web search
+    const toolDefs: unknown[] = [
+      ...functionTools,
+      { type: "web_search", search_context_size: "medium" },
+    ];
 
     const body: Record<string, unknown> = {
-      model: "gpt-4.1",
-      messages: messages.map((m) => {
-        const msg: Record<string, unknown> = {
-          role: m.role,
-          content: m.content,
-        };
-        if (m.tool_calls) msg.tool_calls = m.tool_calls;
-        if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-        return msg;
-      }),
+      model: this.currentModel,
+      instructions: this.instructions.get(session.id) || "You are a helpful assistant.",
+      input,
+      tools: toolDefs,
+      tool_choice: "auto",
+      parallel_tool_calls: true,
+      reasoning: {
+        effort: this.reasoningEffort,
+      },
       stream: true,
       store: false,
+      include: [],
     };
 
-    if (toolDefs) {
-      body.tools = toolDefs;
-      body.tool_choice = "auto";
-    }
-
-    const sessionId = randomUUID();
     const resp = await fetch(CODEX_API_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "responses=experimental",
+        Accept: "text/event-stream",
         originator: "codex_cli_rs",
-        session_id: sessionId,
       },
       body: JSON.stringify(body),
       signal: this.abortController.signal,
@@ -264,122 +360,105 @@ export class OpenAIProvider implements ModelProvider {
 
     if (!resp.ok) {
       const errText = await resp.text();
-      throw new Error(`OpenAI API error: ${resp.status} ${errText}`);
+      const status = resp.status;
+      if (status === 429 || status >= 500) {
+        throw new TransientError(`OpenAI API error: ${status} ${errText}`);
+      }
+      throw new Error(`OpenAI API error: ${status} ${errText}`);
     }
 
-    return this.parseSSEResponse(resp);
+    yield* this.parseSSEStream(resp);
   }
 
-  /**
-   * Parse SSE stream from the ChatGPT backend.
-   * Accumulates text deltas and tool call chunks.
-   */
-  private async parseSSEResponse(resp: Response): Promise<{
-    text: string;
-    toolCalls: Array<{
-      id: string;
-      name: string;
-      args: Record<string, unknown>;
-    }>;
-    usage?: { input_tokens: number; output_tokens: number };
-  }> {
-    const reader = resp.body?.getReader();
-    if (!reader) throw new Error("No response body");
+  // ─── SSE stream parser ──────────────────────────────
 
-    const decoder = new TextDecoder();
-    let buffer = "";
+  private async *parseSSEStream(resp: Response): AsyncGenerator<StreamEvent> {
     let text = "";
-    const toolCallChunks = new Map<
-      number,
-      { id: string; name: string; args: string }
-    >();
+    const toolCalls: Array<{ call_id: string; name: string; args: Record<string, unknown> }> = [];
+    const serverToolIds: string[] = [];
+    const responseItems: ResponseItem[] = [];
     let usage: { input_tokens: number; output_tokens: number } | undefined;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for await (const evt of parseSSELines(resp) as AsyncGenerator<Record<string, unknown>>) {
+      switch (evt.type) {
+        case "response.output_text.delta": {
+          if (evt.delta) {
+            text += evt.delta as string;
+            yield { kind: "delta", text: evt.delta as string };
+          }
+          break;
+        }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+        case "response.output_item.done": {
+          const item = evt.item as Record<string, unknown> | undefined;
+          if (!item) break;
 
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") continue;
-
-        try {
-          const parsed = JSON.parse(data);
-
-          // Handle chat completions streaming format
-          if (parsed.choices?.[0]?.delta) {
-            const delta = parsed.choices[0].delta;
-
-            if (delta.content) {
-              text += delta.content;
-            }
-
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                const idx = tc.index ?? 0;
-                if (!toolCallChunks.has(idx)) {
-                  toolCallChunks.set(idx, {
-                    id: tc.id ?? "",
-                    name: tc.function?.name ?? "",
-                    args: "",
-                  });
-                }
-                const chunk = toolCallChunks.get(idx)!;
-                if (tc.id) chunk.id = tc.id;
-                if (tc.function?.name) chunk.name = tc.function.name;
-                if (tc.function?.arguments)
-                  chunk.args += tc.function.arguments;
-              }
-            }
+          if (item.type === "message" && item.role === "assistant") {
+            responseItems.push({
+              type: "message",
+              role: "assistant",
+              content: (item.content as ContentItem[]) ?? [],
+            });
           }
 
-          // Handle response format (Responses API)
-          if (parsed.type === "response.done" && parsed.response) {
-            const r = parsed.response;
-            if (r.usage) {
-              usage = {
-                input_tokens: r.usage.input_tokens ?? 0,
-                output_tokens: r.usage.output_tokens ?? 0,
-              };
-            }
-            // Extract text from output items
-            if (r.output) {
-              for (const item of r.output) {
-                if (item.type === "message") {
-                  for (const c of item.content ?? []) {
-                    if (c.type === "output_text") text += c.text;
-                  }
-                }
-              }
-            }
+          if (item.type === "function_call") {
+            const callId = (item.call_id as string) ?? randomUUID();
+            const args = safeJsonParse((item.arguments as string) ?? "{}");
+            toolCalls.push({
+              call_id: callId,
+              name: item.name as string,
+              args,
+            });
+            responseItems.push({
+              type: "function_call",
+              name: item.name as string,
+              arguments: (item.arguments as string) ?? "{}",
+              call_id: callId,
+            });
           }
 
-          if (parsed.usage) {
+          if (item.type === "web_search_call") {
+            serverToolIds.push((item.id as string) ?? randomUUID());
+          }
+          break;
+        }
+
+        case "response.completed": {
+          const r = evt.response as Record<string, unknown> | undefined;
+          const u = r?.usage as Record<string, number> | undefined;
+          if (u) {
             usage = {
-              input_tokens: parsed.usage.input_tokens ?? parsed.usage.prompt_tokens ?? 0,
-              output_tokens: parsed.usage.output_tokens ?? parsed.usage.completion_tokens ?? 0,
+              input_tokens: u.input_tokens ?? 0,
+              output_tokens: u.output_tokens ?? 0,
             };
           }
-        } catch {
-          // Skip unparseable lines
+          break;
+        }
+
+        case "response.failed": {
+          const r = evt.response as Record<string, unknown> | undefined;
+          const err = r?.error as Record<string, unknown> | undefined;
+          const msg = (err?.message as string) ?? "Response failed";
+          const code = (err?.code as string) ?? "";
+          // Server errors, rate limits, and generic "error occurred" messages are transient
+          if (code === "server_error" || code === "rate_limit_exceeded" || /error occurred|try again|server/i.test(msg)) {
+            throw new TransientError(msg);
+          }
+          throw new Error(msg);
         }
       }
     }
 
-    const toolCalls = Array.from(toolCallChunks.values())
-      .filter((tc) => tc.name)
-      .map((tc) => ({
-        id: tc.id || randomUUID(),
-        name: tc.name,
-        args: tc.args ? safeJsonParse(tc.args) : {},
-      }));
+    // If we accumulated text but no assistant message item, create one for history
+    if (text && !responseItems.some((i) => i.type === "message")) {
+      responseItems.push({
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text }],
+      });
+    }
 
-    return { text, toolCalls, usage };
+    yield { kind: "complete", text, toolCalls, serverToolIds, responseItems, usage };
   }
 }
 
@@ -390,3 +469,5 @@ function safeJsonParse(str: string): Record<string, unknown> {
     return {};
   }
 }
+
+/** Error subclass for transient failures that should be retried. */

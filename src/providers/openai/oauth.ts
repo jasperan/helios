@@ -4,11 +4,11 @@ import type { AuthManager } from "../auth/auth-manager.js";
 import { startCallbackServer } from "./callback-server.js";
 
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-const AUTH_URL = "https://auth.openai.com/authorize";
+const AUTH_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CALLBACK_PORT = 1455;
 const CALLBACK_PATH = "/auth/callback";
-const REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`;
+const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 
 /**
  * OpenAI OAuth 2.0 + PKCE flow.
@@ -98,7 +98,10 @@ function buildAuthUrl(challenge: string, state: string): string {
     code_challenge: challenge,
     code_challenge_method: "S256",
     state,
-    scope: "openid profile email offline_access",
+    scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    id_token_add_organizations: "true",
+    codex_cli_simplified_flow: "true",
+    originator: "codex_cli_rs",
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
@@ -111,16 +114,18 @@ async function exchangeCode(
   refreshToken: string;
   expiresAt: number;
 }> {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: CLIENT_ID,
+    code,
+    code_verifier: verifier,
+    redirect_uri: REDIRECT_URI,
+  });
+
   const resp = await fetch(TOKEN_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "authorization_code",
-      client_id: CLIENT_ID,
-      code,
-      code_verifier: verifier,
-      redirect_uri: REDIRECT_URI,
-    }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
   });
 
   if (!resp.ok) {

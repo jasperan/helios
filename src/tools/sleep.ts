@@ -7,7 +7,9 @@ export function createSleepTool(
 ): ToolDefinition {
   return {
     name: "sleep",
-    description: `Put yourself to sleep until conditions are met. Use this when waiting for long-running tasks like training. You will be woken when triggers fire.
+    description: `Put yourself to sleep and STOP your current turn. When you call this tool, you MUST immediately end your response — do not output any more text or tool calls after sleep returns. You will be automatically woken when triggers fire and resumed with a wake message containing elapsed time, which triggers fired, and your original goal.
+
+IMPORTANT: Calling sleep means "I am done for now, wake me when conditions are met." After calling sleep, STOP. Do not call any more tools. Do not write any more text. Your turn is over.
 
 Trigger types:
 - timer: Wake after a duration. Provide wake_after_seconds.
@@ -43,7 +45,11 @@ Use logic "any" to wake on the first condition met, "all" to require all conditi
     },
     execute: async (args) => {
       const reason = args.reason as string;
-      const conditions = args.wake_conditions as Record<string, unknown>[];
+      // Models sometimes use variant key names
+      const conditions = (args.wake_conditions ?? args.conditions ?? args.triggers) as Record<string, unknown>[] | undefined;
+      if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
+        return JSON.stringify({ error: "No wake_conditions provided. Provide an array of trigger conditions." });
+      }
       const logic = (args.logic as "any" | "all") ?? "any";
       const deadlineMin = args.deadline_minutes as number | undefined;
 
@@ -68,6 +74,7 @@ Use logic "any" to wake on the first condition met, "all" to require all conditi
         deadline: session.trigger.deadline
           ? new Date(session.trigger.deadline).toISOString()
           : null,
+        instruction: "You are now sleeping. STOP your response immediately. Do not output any more text or tool calls. You will be woken automatically.",
       });
     },
   };

@@ -53,6 +53,15 @@ export class TriggerScheduler extends EventEmitter {
     }
   }
 
+  /** Stop all evaluation cycles and clear sessions. Used on app shutdown. */
+  stopAll(): void {
+    if (this.evaluationTimer) {
+      clearTimeout(this.evaluationTimer);
+      this.evaluationTimer = null;
+    }
+    this.sessions.clear();
+  }
+
   /** Handle user input event — wakes any sleeping session */
   onUserMessage(): void {
     for (const [id, session] of this.sessions) {
@@ -131,8 +140,10 @@ export class TriggerScheduler extends EventEmitter {
   ): Promise<boolean> {
     if ("op" in expr) {
       // Composite trigger
+      const children = expr.children ?? [];
+      if (children.length === 0) return expr.op === "and";
       const results = await Promise.all(
-        expr.children.map((child, i) =>
+        children.map((child, i) =>
           this.evaluate(child, `${path}.${i}`, trigger),
         ),
       );

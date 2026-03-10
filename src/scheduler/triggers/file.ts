@@ -24,10 +24,13 @@ export async function evaluateFile(
       );
       if (result.exitCode !== 0) return false;
       const mtime = parseInt(result.stdout.trim(), 10);
-      if (condition.baselineMtime && mtime > condition.baselineMtime) {
-        return true;
+      if (isNaN(mtime)) return false;
+      // First evaluation: capture baseline, return false
+      if (condition.baselineMtime === undefined) {
+        condition.baselineMtime = mtime;
+        return false;
       }
-      return false;
+      return mtime > condition.baselineMtime;
     }
 
     case "size_stable": {

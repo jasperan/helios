@@ -5,6 +5,7 @@ export interface RemoteMachine {
   username: string;
   authMethod: "key" | "agent" | "password";
   keyPath?: string;
+  password?: string;
   labels?: string[];
 }
 
@@ -20,6 +21,10 @@ export interface BackgroundProcess {
   command: string;
   logPath?: string;
   startedAt: number;
+  /** Metric names to auto-parse from stdout (key=value format) */
+  metricNames?: string[];
+  /** Custom regex patterns: metric name → regex with one capture group */
+  metricPatterns?: Record<string, string>;
 }
 
 export interface ConnectionStatus {

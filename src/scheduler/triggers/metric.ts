@@ -58,10 +58,9 @@ async function fetchMetricValue(
       return isNaN(num) ? null : num;
     }
 
-    case "tensorboard": {
-      // TODO: Parse TensorBoard event files
+    case "tensorboard":
+      // TensorBoard metrics are collected via the MetricCollector pipeline, not inline
       return null;
-    }
   }
 }
 

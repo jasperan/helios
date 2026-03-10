@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import { getDb } from "./database.js";
 import type { Session } from "../providers/types.js";
+import { truncate } from "../ui/format.js";
 
 export interface StoredMessage {
   id: number;
@@ -10,6 +11,16 @@ export interface StoredMessage {
   toolCalls?: string;
   tokenCount?: number;
   timestamp: number;
+}
+
+export interface SessionSummary {
+  id: string;
+  provider: string;
+  model: string | null;
+  createdAt: number;
+  lastActiveAt: number;
+  messageCount: number;
+  firstUserMessage: string | null;
 }
 
 export class SessionStore {
@@ -115,6 +126,41 @@ export class SessionStore {
       providerSessionId: row.provider_session_id as string | undefined,
       createdAt: row.created_at as number,
       lastActiveAt: row.last_active_at as number,
+    }));
+  }
+
+  listSessionSummaries(limit = 20): SessionSummary[] {
+    const db = getDb();
+    const rows = db
+      .prepare(
+        `SELECT
+           s.id,
+           s.provider,
+           s.model,
+           s.created_at,
+           s.last_active_at,
+           COUNT(m.id) AS message_count,
+           (SELECT m2.content FROM messages m2
+            WHERE m2.session_id = s.id AND m2.role = 'user'
+            ORDER BY m2.timestamp ASC LIMIT 1) AS first_user_message
+         FROM sessions s
+         LEFT JOIN messages m ON m.session_id = s.id
+         GROUP BY s.id
+         ORDER BY s.last_active_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Record<string, unknown>[];
+
+    return rows.map((row) => ({
+      id: row.id as string,
+      provider: row.provider as string,
+      model: (row.model as string | null) ?? null,
+      createdAt: row.created_at as number,
+      lastActiveAt: row.last_active_at as number,
+      messageCount: row.message_count as number,
+      firstUserMessage: row.first_user_message
+        ? truncate(row.first_user_message as string, 80, true)
+        : null,
     }));
   }
 }

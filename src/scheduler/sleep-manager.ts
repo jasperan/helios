@@ -7,6 +7,10 @@ import type {
 } from "./triggers/types.js";
 import { TriggerScheduler } from "./trigger-scheduler.js";
 import type { Orchestrator } from "../core/orchestrator.js";
+import type { RemoteExecutor } from "../remote/executor.js";
+import type { ConnectionPool } from "../remote/connection-pool.js";
+import type { MetricStore } from "../metrics/store.js";
+import { formatDuration } from "../ui/format.js";
 
 export interface SleepRequest {
   reason: string;
@@ -17,6 +21,9 @@ export interface SleepRequest {
 
 export class SleepManager extends EventEmitter {
   private activeSleep: SleepSession | null = null;
+  private executor: RemoteExecutor | null = null;
+  private connectionPool: ConnectionPool | null = null;
+  private metricStore: MetricStore | null = null;
 
   constructor(
     private scheduler: TriggerScheduler,
@@ -27,6 +34,18 @@ export class SleepManager extends EventEmitter {
     this.scheduler.on("wake", (session: SleepSession, reason: string) => {
       this.handleWake(session, reason);
     });
+  }
+
+  setExecutor(executor: RemoteExecutor): void {
+    this.executor = executor;
+  }
+
+  setConnectionPool(pool: ConnectionPool): void {
+    this.connectionPool = pool;
+  }
+
+  setMetricStore(store: MetricStore): void {
+    this.metricStore = store;
   }
 
   get isSleeping(): boolean {
@@ -70,7 +89,7 @@ export class SleepManager extends EventEmitter {
         providerName: provider.name,
         providerSessionId: session.providerSessionId,
         pendingGoal: request.reason,
-        activeMachines: [], // TODO: populate from connection pool
+        activeMachines: this.connectionPool?.getMachineIds() ?? [],
       },
       createdAt: Date.now(),
     };
@@ -88,33 +107,67 @@ export class SleepManager extends EventEmitter {
 
   manualWake(userMessage?: string): void {
     if (!this.activeSleep) return;
+    // Store the user message so handleWake can include it
+    this._pendingUserMessage = userMessage ?? null;
     this.scheduler.onUserMessage();
   }
+
+  private _pendingUserMessage: string | null = null;
 
   private handleWake(session: SleepSession, reason: string): void {
     this.activeSleep = null;
     this.orchestrator.stateMachine.transition("active", reason);
-    this.emit("wake", session, reason);
 
-    // TODO: Resume agent session with context injection
-    // Build wake message with: elapsed time, trigger info, latest metrics
+    // Build rich wake message and auto-resume the agent
+    let wakeMessage = this.buildWakeMessage(session);
+    if (this._pendingUserMessage) {
+      wakeMessage += `\n\nUser message: ${this._pendingUserMessage}`;
+      this._pendingUserMessage = null;
+    }
+    this.emit("wake", session, reason, wakeMessage);
   }
 
   buildWakeMessage(session: SleepSession): string {
     const elapsed = (session.wokeAt ?? Date.now()) - session.createdAt;
-    const elapsedMin = Math.round(elapsed / 60_000);
 
     const parts = [
-      `You slept for ${elapsedMin} minutes.`,
-      `Wake reason: ${session.wakeReason}.`,
-      `Original goal: ${session.agentState.pendingGoal}`,
+      `[Wake — slept ${formatDuration(elapsed)}]`,
+      `Reason: ${session.wakeReason === "trigger_satisfied" ? "trigger fired" : session.wakeReason}`,
+      `Goal: ${session.agentState.pendingGoal}`,
     ];
 
+    // What conditions were satisfied
     const satisfied = Array.from(session.trigger.satisfiedLeaves);
     if (satisfied.length > 0) {
       parts.push(`Satisfied conditions: ${satisfied.join(", ")}`);
     }
 
+    // Active tasks status
+    if (this.executor) {
+      const procs = this.executor.getBackgroundProcesses();
+      if (procs.length > 0) {
+        parts.push("", "Active tasks:");
+        for (const p of procs) {
+          parts.push(`  ${p.machineId}:${p.pid} — ${p.command.slice(0, 60)}`);
+        }
+      }
+    }
+
+    // Latest metric values
+    if (this.metricStore) {
+      const names = this.metricStore.getAllMetricNames();
+      if (names.length > 0) {
+        parts.push("", "Latest metrics:");
+        for (const name of names.slice(0, 10)) {
+          const series = this.metricStore.getSeriesAcrossTasks(name, 1);
+          if (series.length > 0) {
+            parts.push(`  ${name}: ${series[0].value}`);
+          }
+        }
+      }
+    }
+
+    parts.push("", "Continue working toward your goal.");
     return parts.join("\n");
   }
 }
