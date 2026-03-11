@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import type { ToolDefinition } from "../providers/types.js";
 import type { HubClient } from "../hub/client.js";
 import type { RemoteExecutor } from "../remote/executor.js";
-import { shellQuote, formatError } from "../ui/format.js";
+import { shellQuote, formatError, toolError } from "../ui/format.js";
 
 function createHubPushTool(client: HubClient, executor: RemoteExecutor): ToolDefinition {
   return {
@@ -37,7 +37,7 @@ function createHubPushTool(client: HubClient, executor: RemoteExecutor): ToolDef
         // Get HEAD hash
         const headResult = await executor.exec(machineId, `cd ${shellQuote(repoPath)} && git rev-parse HEAD`);
         if (headResult.exitCode !== 0) {
-          return JSON.stringify({ error: `Not a git repo or no commits: ${headResult.stderr.trim()}` });
+          return toolError(`Not a git repo or no commits: ${headResult.stderr.trim()}`);
         }
         const head = headResult.stdout.trim();
 
@@ -47,7 +47,7 @@ function createHubPushTool(client: HubClient, executor: RemoteExecutor): ToolDef
         const bundleCmd = `cd ${shellQuote(repoPath)} && git bundle create ${bundlePath} ${range}`;
         const bundleResult = await executor.exec(machineId, bundleCmd);
         if (bundleResult.exitCode !== 0) {
-          return JSON.stringify({ error: `Bundle creation failed: ${bundleResult.stderr.trim()}` });
+          return toolError(`Bundle creation failed: ${bundleResult.stderr.trim()}`);
         }
 
         // Read bundle and push
@@ -59,7 +59,7 @@ function createHubPushTool(client: HubClient, executor: RemoteExecutor): ToolDef
           // Remote: base64 encode over SSH
           const b64Result = await executor.exec(machineId, `base64 < ${bundlePath} && rm -f ${bundlePath}`, 60_000);
           if (b64Result.exitCode !== 0) {
-            return JSON.stringify({ error: `Failed to read bundle: ${b64Result.stderr.trim()}` });
+            return toolError(`Failed to read bundle: ${b64Result.stderr.trim()}`);
           }
           bundleBuffer = Buffer.from(b64Result.stdout.replace(/\s/g, ""), "base64");
         }
@@ -67,7 +67,7 @@ function createHubPushTool(client: HubClient, executor: RemoteExecutor): ToolDef
         const result = await client.pushBundle(bundleBuffer);
         return JSON.stringify({ pushed: true, hashes: result.hashes, head, bytes: bundleBuffer.length });
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -117,13 +117,13 @@ function createHubFetchTool(client: HubClient, executor: RemoteExecutor): ToolDe
             const chunk = b64.slice(i, i + CHUNK_SIZE);
             const appendResult = await executor.exec(machineId, `printf '%s' '${chunk}' >> ${bundlePath}.b64`, 10_000);
             if (appendResult.exitCode !== 0) {
-              return JSON.stringify({ error: `Failed to write bundle chunk: ${appendResult.stderr.trim()}` });
+              return toolError(`Failed to write bundle chunk: ${appendResult.stderr.trim()}`);
             }
           }
           // base64 -d works on Linux and modern macOS; -D is the legacy macOS flag
           const decodeResult = await executor.exec(machineId, `(base64 -d < ${bundlePath}.b64 > ${bundlePath} 2>/dev/null || base64 -D < ${bundlePath}.b64 > ${bundlePath}) && rm -f ${bundlePath}.b64`, 60_000);
           if (decodeResult.exitCode !== 0) {
-            return JSON.stringify({ error: `Failed to decode bundle: ${decodeResult.stderr.trim()}` });
+            return toolError(`Failed to decode bundle: ${decodeResult.stderr.trim()}`);
           }
         }
 
@@ -131,17 +131,17 @@ function createHubFetchTool(client: HubClient, executor: RemoteExecutor): ToolDe
         const verifyResult = await executor.exec(machineId, `cd ${shellQuote(repoPath)} && git bundle verify ${bundlePath} 2>&1`);
         if (verifyResult.exitCode !== 0) {
           await executor.exec(machineId, `rm -f ${bundlePath}`);
-          return JSON.stringify({ error: `Bundle verification failed: ${verifyResult.stdout.trim()}` });
+          return toolError(`Bundle verification failed: ${verifyResult.stdout.trim()}`);
         }
 
         const unbundleResult = await executor.exec(machineId, `cd ${shellQuote(repoPath)} && git bundle unbundle ${bundlePath} && rm -f ${bundlePath}`);
         if (unbundleResult.exitCode !== 0) {
-          return JSON.stringify({ error: `Unbundle failed: ${unbundleResult.stderr.trim()}` });
+          return toolError(`Unbundle failed: ${unbundleResult.stderr.trim()}`);
         }
 
         return JSON.stringify({ fetched: true, hash, output: unbundleResult.stdout.trim() });
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -166,7 +166,7 @@ function createHubLogTool(client: HubClient): ToolDefinition {
         });
         return JSON.stringify(commits);
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -185,7 +185,7 @@ function createHubLeavesTool(client: HubClient): ToolDefinition {
         const leaves = await client.getLeaves();
         return JSON.stringify(leaves);
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -208,7 +208,7 @@ function createHubDiffTool(client: HubClient): ToolDefinition {
         const diff = await client.diff(args.hash_a as string, args.hash_b as string);
         return JSON.stringify({ diff });
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -234,7 +234,7 @@ function createHubPostTool(client: HubClient): ToolDefinition {
         );
         return JSON.stringify({ posted: true, id: post.id, channel_id: post.channel_id });
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -265,12 +265,12 @@ function createHubReadTool(client: HubClient): ToolDefinition {
 
         const channel = args.channel as string;
         if (!channel) {
-          return JSON.stringify({ error: "Provide either channel or post_id" });
+          return toolError("Provide either channel or post_id");
         }
         const posts = await client.listPosts(channel, { limit: (args.limit as number) || 10 });
         return JSON.stringify(posts);
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };
@@ -298,7 +298,7 @@ function createHubReplyTool(client: HubClient): ToolDefinition {
         );
         return JSON.stringify({ replied: true, id: reply.id, parent_id: reply.parent_id });
       } catch (err) {
-        return JSON.stringify({ error: formatError(err) });
+        return toolError(err);
       }
     },
   };

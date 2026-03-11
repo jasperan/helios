@@ -12,7 +12,8 @@ import { RemoteExecutor } from "./remote/executor.js";
 import { FileSync } from "./remote/file-sync.js";
 import { MetricStore } from "./metrics/store.js";
 import { MetricCollector } from "./metrics/collector.js";
-import { MemoryStore } from "./memory/memory-store.js";
+import type { MemoryStore } from "./memory/memory-store.js";
+import { GlobalMemoryRouter } from "./memory/global-memory.js";
 import { ContextGate } from "./memory/context-gate.js";
 import { ExperimentTracker } from "./memory/experiment-tracker.js";
 import { StickyManager } from "./core/stickies.js";
@@ -22,7 +23,8 @@ import { SleepManager } from "./scheduler/sleep-manager.js";
 import { MonitorManager } from "./core/monitor.js";
 import { loadHubConfig } from "./hub/config.js";
 import { HubClient } from "./hub/client.js";
-import { formatError } from "./ui/format.js";
+import { formatError, toolError } from "./ui/format.js";
+import { getAgentId, WEB_SEARCH_TOOL } from "./paths.js";
 import { loadMachines } from "./remote/config.js";
 import { loadPreferences } from "./store/preferences.js";
 import { SessionStore } from "./store/session-store.js";
@@ -48,6 +50,8 @@ import { createConsultTool } from "./tools/consult.js";
 import { createWriteupTool } from "./tools/writeup.js";
 import { createHubTools } from "./tools/hub.js";
 import { createMemoryTools } from "./tools/memory-tools.js";
+import { SkillRegistry } from "./skills/registry.js";
+import { seedBundledSkills } from "./skills/loader.js";
 import { createExperimentBranchTools } from "./tools/experiment-branch.js";
 import { createEnvSnapshotTool } from "./tools/env-snapshot.js";
 import { createSweepTool } from "./tools/sweep.js";
@@ -200,6 +204,10 @@ When the conversation gets too long, your context will be checkpointed: history 
 
 **Tools**: memory_ls, memory_read, memory_write, memory_rm
 
+Memory has two scopes:
+- **Session memory** (/ paths): Scoped to this session. Cleared when the session ends.
+- **Global memory** (/global/ paths): Persists across ALL sessions. Use this for knowledge that should survive: priors, paper summaries, dataset info, environment snapshots.
+
 **CRITICAL: Proactively store important findings as you work.** Don't wait for a checkpoint — write to memory as you go:
 - Store the goal at /goal
 - Store your current best result at /best
@@ -208,8 +216,11 @@ When the conversation gets too long, your context will be checkpointed: history 
 - Store decisions at /decisions/<name>
 - Store sources at /sources/<name> — **any time** you build on another agent's work, fetch a commit, or read a useful hub post, immediately write a source entry with the agent ID, commit hash or post ID, and what you took from it
 - Experiments are auto-tracked at /experiments/ when you use remote_exec_background
+- Store durable insights at /global/priors/<name> — things like "warmup helps for transformers" that apply across experiments
+- Store paper summaries at /global/papers/<name>
+- Store dataset info at /global/datasets/<name>
 
-After a checkpoint, you'll see a tree listing of all your stored knowledge. Use memory_read(path) to retrieve details, and memory_ls to explore.
+After a checkpoint, you'll see a tree listing of all your stored knowledge. Use memory_read(path) to retrieve details, and memory_ls to explore. **Always check /global/ at the start of a session** — previous sessions may have stored useful priors and paper notes.
 
 **The gist is the key**: When listing nodes, you see path + gist. Make gists informative enough that you can decide whether to read the full content.
 
@@ -258,6 +269,7 @@ export interface HeliosRuntime {
   resourceCollector: ResourceCollector;
   notifier: Notifier | null;
   experimentBrancher: ExperimentBrancher;
+  skillRegistry: SkillRegistry;
   openaiOAuth: OpenAIOAuth;
   projectConfig: ReturnType<typeof findProjectConfig>;
   agentName?: string;
@@ -276,7 +288,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   const prefs = loadPreferences();
   const initialProvider = options.provider ?? projectConfig?.provider ?? prefs.lastProvider ?? "claude";
   const initialClaudeMode = options.claudeMode ?? prefs.claudeAuthMode;
-  const agentId = process.env.AGENTHUB_AGENT ?? "";
+  const agentId = getAgentId();
 
   // Auth
   const authManager = new AuthManager();
@@ -310,8 +322,8 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   const metricStore = new MetricStore(agentId);
   const metricCollector = new MetricCollector(connPool, metricStore);
 
-  // Memory
-  const memoryStore = new MemoryStore("pending");
+  // Memory (GlobalMemoryRouter routes /global/ paths to a shared store)
+  const memoryStore = new GlobalMemoryRouter("pending");
   const contextGate = new ContextGate(memoryStore);
   contextGate.setExecutor(exec);
   contextGate.setMetricStore(metricStore);
@@ -360,6 +372,12 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   orch.registerProvider(claudeProvider);
   orch.registerProvider(openaiProvider);
 
+  // Skills — seed bundled skills to ~/.helios/skills/ on first launch (or upgrade)
+  seedBundledSkills();
+  const projectRoot = projectConfig ? process.cwd() : undefined;
+  const skillRegistry = new SkillRegistry(projectRoot);
+  skillRegistry.load();
+
   // Tools
   orch.registerTools([
     createRemoteExecTool(exec),
@@ -376,12 +394,17 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
     createWriteFileTool(connPool),
     createPatchFileTool(connPool),
     createWebFetchTool(),
+    // web_search marker — actual search is handled by each provider's native tool.
+    // Registered here so skills can reference it in their tools: allow list.
+    {
+      name: WEB_SEARCH_TOOL,
+      description: "Search the web using the provider's built-in search. The provider handles this natively — Claude uses web_search_20250305, OpenAI uses its built-in web search.",
+      parameters: { type: "object", properties: { query: { type: "string", description: "Search query" } }, required: ["query"] },
+      execute: async () => toolError("web_search is handled natively by the provider"),
+    },
     ...createMemoryTools(memoryStore),
-    createConsultTool(
-      () => orch.currentProvider?.name ?? null,
-      (name) => orch.getProvider(name),
-    ),
-    createWriteupTool(() => orch.currentProvider ?? null),
+    createConsultTool(orch, skillRegistry),
+    createWriteupTool(orch, skillRegistry),
     ...createExperimentBranchTools(experimentBrancher),
     createEnvSnapshotTool(exec, memoryStore),
     createSweepTool(exec, connPool, metricCollector),
@@ -431,6 +454,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
     resourceCollector,
     notifier,
     experimentBrancher,
+    skillRegistry,
     openaiOAuth,
     projectConfig,
     agentName: agentId || hubConfig?.agentName,

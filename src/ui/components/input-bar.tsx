@@ -1,19 +1,22 @@
 import { useState, useMemo } from "react";
 import { Box, Text, useInput } from "ink";
 import { C, G } from "../theme.js";
-import { COMMANDS, type SlashCommand } from "../commands.js";
+import type { SlashCommand } from "../commands.js";
 
 interface InputBarProps {
   onSubmit: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  commands?: SlashCommand[];
 }
 
 export function InputBar({
   onSubmit,
   disabled = false,
   placeholder = "send a message...",
+  commands: commandsProp,
 }: InputBarProps) {
+  const COMMANDS = commandsProp ?? [];
   const [value, setValue] = useState("");
   const [cursorPos, setCursorPos] = useState(0);
   const [history, setHistory] = useState<string[]>([]);

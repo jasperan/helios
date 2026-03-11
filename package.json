@@ -1,6 +1,6 @@
 {
   "name": "@snoglobe/helios",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Autonomous ML research agent TUI",
   "type": "module",
   "main": "dist/cli/index.js",
@@ -8,7 +8,7 @@
     "helios": "dist/bootstrap.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp -r src/skills/bundled dist/skills/",
     "dev": "tsx src/bootstrap.ts",
     "start": "node dist/bootstrap.js",
     "prepublishOnly": "npm run build"

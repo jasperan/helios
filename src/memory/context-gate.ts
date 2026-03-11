@@ -73,14 +73,6 @@ export class ContextGate {
     return this.buildBriefing(gist);
   }
 
-  /**
-   * Perform a checkpoint without a gist (fallback).
-   */
-  performCheckpointFromOrchestrator(): string {
-    this.saveActiveTasks();
-    return this.buildBriefing(null);
-  }
-
   private saveActiveTasks(): void {
     if (!this.executor) return;
 

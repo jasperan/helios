@@ -128,10 +128,6 @@ export class ExperimentTracker {
     this.experiments.delete(key);
   }
 
-  /** Get all pending experiment keys. */
-  getPendingKeys(): string[] {
-    return [...this.experiments.keys()];
-  }
 }
 
 function slugify(cmd: string): string {

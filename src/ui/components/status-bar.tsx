@@ -10,11 +10,13 @@ interface StatusBarProps {
   orchestrator: Orchestrator;
   sleepManager?: SleepManager;
   monitorManager?: MonitorManager;
+  isStreaming?: boolean;
+  streamingStartedAt?: number | null;
 }
 
 const SLEEP_FRAMES = ["◇", "◆", "◇", "◇"];
 
-export function StatusBar({ orchestrator, sleepManager, monitorManager }: StatusBarProps) {
+export function StatusBar({ orchestrator, sleepManager, monitorManager, isStreaming, streamingStartedAt }: StatusBarProps) {
   const state = orchestrator.currentState;
   const provider = orchestrator.currentProvider;
   const model = orchestrator.currentModel;
@@ -27,6 +29,8 @@ export function StatusBar({ orchestrator, sleepManager, monitorManager }: Status
   const sleeping = sleepManager?.isSleeping;
   const sleepSession = sleepManager?.currentSleep;
 
+  const [workElapsed, setWorkElapsed] = useState(0);
+
   useEffect(() => {
     if (!sleeping) return;
     const timer = setInterval(() => {
@@ -37,6 +41,18 @@ export function StatusBar({ orchestrator, sleepManager, monitorManager }: Status
     }, 500);
     return () => clearInterval(timer);
   }, [sleeping, sleepSession]);
+
+  useEffect(() => {
+    if (!isStreaming || !streamingStartedAt) {
+      setWorkElapsed(0);
+      return;
+    }
+    setWorkElapsed(Date.now() - streamingStartedAt);
+    const timer = setInterval(() => {
+      setWorkElapsed(Date.now() - streamingStartedAt);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isStreaming, streamingStartedAt]);
 
   const stateColor = {
     idle: C.dim,
@@ -67,6 +83,14 @@ export function StatusBar({ orchestrator, sleepManager, monitorManager }: Status
       <Text color={stateColor}>
         {state}
       </Text>
+
+      {isStreaming && workElapsed > 0 && (
+        <>
+          <Text color={C.dim}>{" "}{G.dash}{" "}</Text>
+          <Text color={C.primary}>⟡ </Text>
+          <Text color={C.dim}>{formatDuration(workElapsed)}</Text>
+        </>
+      )}
 
       {sleeping && sleepSession && (() => {
         // Calculate how many chars are left for the sleep reason

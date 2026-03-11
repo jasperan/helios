@@ -4,7 +4,7 @@
 
 import type { ToolDefinition } from "../providers/types.js";
 import type { ExperimentBrancher } from "../experiments/branching.js";
-import { formatError } from "../ui/format.js";
+import { formatError, toolError } from "../ui/format.js";
 
 export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolDefinition[] {
   return [
@@ -38,11 +38,11 @@ export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolD
             args.experiment_name as string,
           );
           if (!branch) {
-            return JSON.stringify({ error: "Not a git repo or branch creation failed" });
+            return toolError("Not a git repo or branch creation failed");
           }
           return JSON.stringify({ branch, created: true });
         } catch (err) {
-          return JSON.stringify({ error: formatError(err) });
+          return toolError(err);
         }
       },
     },
@@ -82,7 +82,7 @@ export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolD
           );
           return JSON.stringify({ committed: ok });
         } catch (err) {
-          return JSON.stringify({ error: formatError(err) });
+          return toolError(err);
         }
       },
     },
@@ -122,7 +122,7 @@ export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolD
           );
           return JSON.stringify({ diff: diff || "(no differences)" });
         } catch (err) {
-          return JSON.stringify({ error: formatError(err) });
+          return toolError(err);
         }
       },
     },
@@ -152,7 +152,7 @@ export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolD
           );
           return JSON.stringify({ branches });
         } catch (err) {
-          return JSON.stringify({ error: formatError(err) });
+          return toolError(err);
         }
       },
     },
@@ -182,7 +182,7 @@ export function createExperimentBranchTools(brancher: ExperimentBrancher): ToolD
           );
           return JSON.stringify({ returned: true });
         } catch (err) {
-          return JSON.stringify({ error: formatError(err) });
+          return toolError(err);
         }
       },
     },

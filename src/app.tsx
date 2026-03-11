@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { formatError } from "./ui/format.js";
 import { Box, Text } from "ink";
 import type { EventEmitter } from "node:events";
 import { Layout } from "./ui/layout.js";
@@ -61,7 +62,7 @@ export function App({
 
       if (!aborted) setRuntime(rt);
     }).catch((err) => {
-      if (!aborted) setError(err instanceof Error ? err.message : String(err));
+      if (!aborted) setError(formatError(err));
     });
 
     return () => { aborted = true; cleanup?.(); };

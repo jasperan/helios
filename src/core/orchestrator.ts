@@ -171,20 +171,11 @@ export class Orchestrator {
       }
 
       if (event.type === "done") {
-        if (event.usage?.costUsd) {
-          this._totalCostUsd += event.usage.costUsd;
+        if (event.usage) {
+          this.addCost(event.usage.costUsd ?? 0, event.usage.inputTokens, event.usage.outputTokens);
         }
         if (event.usage?.inputTokens) {
           this._lastInputTokens = event.usage.inputTokens;
-        }
-        // Persist cost to session
-        if (event.usage && session) {
-          this.sessionStore.addCost(
-            session.id,
-            event.usage.costUsd ?? 0,
-            event.usage.inputTokens ?? 0,
-            event.usage.outputTokens ?? 0,
-          );
         }
       }
 
@@ -203,9 +194,21 @@ export class Orchestrator {
     }
   }
 
+  /** Optional secondary abort controller (e.g. for looping skills). */
+  private _activeAbort: AbortController | null = null;
+
+  /** Register an AbortController to be aborted on interrupt(). */
+  setActiveAbort(controller: AbortController | null): void {
+    this._activeAbort = controller;
+  }
+
   interrupt(): void {
     if (this.activeProvider && this.activeSession) {
       this.activeProvider.interrupt(this.activeSession);
+    }
+    if (this._activeAbort) {
+      this._activeAbort.abort();
+      this._activeAbort = null;
     }
   }
 
@@ -223,6 +226,19 @@ export class Orchestrator {
 
   get totalCostUsd(): number {
     return this._totalCostUsd;
+  }
+
+  /** Record cost from external sources (e.g. skill executor). */
+  addCost(costUsd: number, inputTokens?: number, outputTokens?: number): void {
+    this._totalCostUsd += costUsd;
+    if (this.activeSession) {
+      this.sessionStore.addCost(
+        this.activeSession.id,
+        costUsd,
+        inputTokens ?? 0,
+        outputTokens ?? 0,
+      );
+    }
   }
 
   get currentModel(): string | null {
@@ -300,6 +316,9 @@ export class Orchestrator {
       for await (const event of provider.send(session, CHECKPOINT_GIST_PROMPT, [])) {
         if (event.type === "text" && event.delta) {
           gist += event.delta;
+        }
+        if (event.type === "done" && event.usage) {
+          this.addCost(event.usage.costUsd ?? 0, event.usage.inputTokens, event.usage.outputTokens);
         }
       }
     } catch {

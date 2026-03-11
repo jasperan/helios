@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "../providers/types.js";
 import type { SleepManager } from "../scheduler/sleep-manager.js";
 import type { TriggerExpression, MetricSource } from "../scheduler/triggers/types.js";
+import { toolError } from "../ui/format.js";
 
 export function createSleepTool(
   sleepManager: SleepManager,
@@ -48,7 +49,7 @@ Use logic "any" to wake on the first condition met, "all" to require all conditi
       // Models sometimes use variant key names
       const conditions = (args.wake_conditions ?? args.conditions ?? args.triggers) as Record<string, unknown>[] | undefined;
       if (!conditions || !Array.isArray(conditions) || conditions.length === 0) {
-        return JSON.stringify({ error: "No wake_conditions provided. Provide an array of trigger conditions." });
+        return toolError("No wake_conditions provided. Provide an array of trigger conditions.");
       }
       const logic = (args.logic as "any" | "all") ?? "any";
       const deadlineMin = args.deadline_minutes as number | undefined;

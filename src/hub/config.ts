@@ -1,9 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { HELIOS_DIR } from "../paths.js";
+import { HELIOS_DIR, getAgentId } from "../paths.js";
 
-const CONFIG_DIR = HELIOS_DIR;
-const HUB_FILE = join(CONFIG_DIR, "hub.json");
+const HUB_FILE = join(HELIOS_DIR, "hub.json");
 
 export interface HubConfig {
   url: string;
@@ -16,7 +15,7 @@ export function loadHubConfig(): HubConfig | null {
   const envUrl = process.env.AGENTHUB_URL;
   const envKey = process.env.AGENTHUB_KEY;
   if (envUrl && envKey) {
-    return { url: envUrl.replace(/\/+$/, ""), apiKey: envKey, agentName: process.env.AGENTHUB_AGENT };
+    return { url: envUrl.replace(/\/+$/, ""), apiKey: envKey, agentName: getAgentId() || undefined };
   }
 
   try {
@@ -33,7 +32,7 @@ export function loadHubConfig(): HubConfig | null {
 }
 
 export function saveHubConfig(config: HubConfig): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
+  mkdirSync(HELIOS_DIR, { recursive: true });
   writeFileSync(HUB_FILE, JSON.stringify(config, null, 2) + "\n", "utf-8");
 }
 

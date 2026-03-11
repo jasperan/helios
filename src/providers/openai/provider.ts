@@ -12,6 +12,8 @@ import {
 } from "../types.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { TransientError, isTransient, sleep } from "../retry.js";
+import { formatError } from "../../ui/format.js";
+import { WEB_SEARCH_TOOL } from "../../paths.js";
 import { parseSSELines } from "../sse.js";
 import { SessionStore } from "../../store/session-store.js";
 import { OpenAIOAuth } from "./oauth.js";
@@ -260,7 +262,7 @@ export class OpenAIProvider implements ModelProvider {
             try {
               toolResult = await tool.execute(tc.args);
             } catch (err) {
-              toolResult = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              toolResult = `Error: ${formatError(err)}`;
               isError = true;
             }
           }
@@ -346,19 +348,21 @@ export class OpenAIProvider implements ModelProvider {
   ): AsyncGenerator<StreamEvent> {
     this.abortController = new AbortController();
 
-    const functionTools = tools.map((t) => ({
-      type: "function" as const,
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-      strict: false,
-    }));
+    const hasWebSearch = tools.some((t) => t.name === WEB_SEARCH_TOOL);
+    const functionTools = tools
+      .filter((t) => t.name !== WEB_SEARCH_TOOL)
+      .map((t) => ({
+        type: "function" as const,
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+        strict: false,
+      }));
 
-    // Include OpenAI's built-in web search
-    const toolDefs: unknown[] = [
-      ...functionTools,
-      { type: "web_search", search_context_size: "medium" },
-    ];
+    const toolDefs: unknown[] = [...functionTools];
+    if (hasWebSearch) {
+      toolDefs.push({ type: "web_search", search_context_size: "medium" });
+    }
 
     const body: Record<string, unknown> = {
       model: this.currentModel,
@@ -498,5 +502,3 @@ function safeJsonParse(str: string): Record<string, unknown> {
     return {};
   }
 }
-
-/** Error subclass for transient failures that should be retried. */

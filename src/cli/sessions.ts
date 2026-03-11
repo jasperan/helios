@@ -4,6 +4,7 @@
 
 import { Effect } from "effect";
 import { Command, Options } from "@effect/cli";
+import { getAgentId } from "../paths.js";
 
 const limit = Options.integer("limit").pipe(
   Options.withAlias("n"),
@@ -17,7 +18,7 @@ export const sessions = Command.make(
   ({ limit }) =>
     Effect.promise(async () => {
       const { SessionStore } = await import("../store/session-store.js");
-      const store = new SessionStore(process.env.AGENTHUB_AGENT ?? "");
+      const store = new SessionStore(getAgentId());
       const summaries = store.listSessionSummaries(limit);
 
       if (summaries.length === 0) {

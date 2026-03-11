@@ -162,16 +162,12 @@ export class ConnectionPool {
         stream.on("data", (data: Buffer) => {
           if (stdoutCapped) return;
           stdout += data.toString();
-          if (stdout.length > MAX_EXEC_OUTPUT) {
-            stdoutCapped = true;
-          }
+          if (stdout.length > MAX_EXEC_OUTPUT) stdoutCapped = true;
         });
         stream.stderr.on("data", (data: Buffer) => {
           if (stderrCapped) return;
           stderr += data.toString();
-          if (stderr.length > MAX_EXEC_OUTPUT) {
-            stderrCapped = true;
-          }
+          if (stderr.length > MAX_EXEC_OUTPUT) stderrCapped = true;
         });
         stream.on("error", (streamErr: Error) => {
           reject(streamErr);

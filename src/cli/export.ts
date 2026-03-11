@@ -4,6 +4,7 @@
 
 import { Effect, Option } from "effect";
 import { Command, Args, Options } from "@effect/cli";
+import { getAgentId } from "../paths.js";
 
 const sessionId = Args.text({ name: "session-id" }).pipe(
   Args.withDescription("Session to export (default: all)"),
@@ -39,7 +40,7 @@ export const exportCmd = Command.make(
     Effect.promise(async () => {
       const { getDb } = await import("../store/database.js");
       const db = getDb();
-      const agentId = process.env.AGENTHUB_AGENT ?? "";
+      const agentId = getAgentId();
       const targetSession = Option.getOrUndefined(sessionIdOpt);
 
       switch (what) {

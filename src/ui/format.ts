@@ -45,3 +45,13 @@ export function formatBytes(bytes: number): string {
 export function shellQuote(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
+
+/** Standard JSON error response for tool execute() returns. */
+export function toolError(err: unknown): string {
+  return JSON.stringify({ error: formatError(err) });
+}
+
+/** Standard JSON success response for tool execute() returns. */
+export function toolResult(data: unknown): string {
+  return JSON.stringify(data);
+}

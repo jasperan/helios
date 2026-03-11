@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../providers/types.js";
 import type { MetricStore } from "../metrics/store.js";
+import { toolError } from "../ui/format.js";
 
 export function createCompareRunsTool(
   metricStore: MetricStore,
@@ -41,10 +42,10 @@ export function createCompareRunsTool(
       const summaryB = metricStore.getTaskSummary(taskB);
 
       if (Object.keys(summaryA).length === 0) {
-        return JSON.stringify({ error: `No metrics found for task ${taskA}` });
+        return toolError(`No metrics found for task ${taskA}`);
       }
       if (Object.keys(summaryB).length === 0) {
-        return JSON.stringify({ error: `No metrics found for task ${taskB}` });
+        return toolError(`No metrics found for task ${taskB}`);
       }
 
       // Get union of metric names, optionally filtered

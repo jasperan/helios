@@ -1,4 +1,5 @@
 import type { HubConfig } from "./config.js";
+import { fetchWithRetry } from "../providers/retry.js";
 
 // ─── Types (matching actual agenthub API responses) ──
 
@@ -51,7 +52,7 @@ export class HubClient {
   }
 
   private async doFetch(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<Response> {
-    const resp = await fetch(`${this.baseUrl}${path}`, {
+    const resp = await fetchWithRetry(`${this.baseUrl}${path}`, {
       ...init,
       headers: { ...this.headers(), ...init?.headers },
       signal: AbortSignal.timeout(timeoutMs),
@@ -170,7 +171,7 @@ export class HubClient {
     id: string,
     authHeader?: Record<string, string>,
   ): Promise<{ api_key: string; id: string }> {
-    const resp = await fetch(url, {
+    const resp = await fetchWithRetry(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeader },
       body: JSON.stringify({ id }),

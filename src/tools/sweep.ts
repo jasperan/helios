@@ -7,7 +7,7 @@ import {
   patternsFromNames,
   patternsFromRegexes,
 } from "../metrics/parser.js";
-import { formatError, shellQuote } from "../ui/format.js";
+import { formatError, shellQuote, toolError } from "../ui/format.js";
 
 /**
  * Compute the cartesian product of a parameter grid.
@@ -109,7 +109,7 @@ export function createSweepTool(
       // 1. Generate all parameter combinations
       const combinations = cartesianProduct(paramGrid);
       if (combinations.length === 0) {
-        return JSON.stringify({ error: "No parameter combinations generated. Check your params grid." });
+        return toolError("No parameter combinations generated. Check your params grid.");
       }
 
       // 2. Determine available machines
@@ -123,7 +123,7 @@ export function createSweepTool(
       }
 
       if (machineIds.length === 0) {
-        return JSON.stringify({ error: "No connected machines available for sweep." });
+        return toolError("No connected machines available for sweep.");
       }
 
       const maxParallel = maxParallelArg ?? machineIds.length;

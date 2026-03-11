@@ -26,7 +26,8 @@ import {
 } from "../hub/config.js";
 import { HubClient } from "../hub/client.js";
 import { createHubTools } from "../tools/hub.js";
-import { buildWriteupSystemPrompt } from "../tools/writeup.js";
+import type { SkillRegistry } from "../skills/registry.js";
+import { executeSkill } from "../skills/executor.js";
 
 // ─── Types ────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export interface CommandContext {
   stickyManager?: StickyManager;
   setStickyNotes?: React.Dispatch<React.SetStateAction<StickyNote[]>>;
   executor?: RemoteExecutor;
+  skillRegistry?: SkillRegistry;
   /** Build Message[] from stored messages (needs access to the id counter). */
   restoreMessages: (messages: Array<{ role: string; content: string }>) => Message[];
 }
@@ -70,7 +72,7 @@ export const COMMANDS: SlashCommand[] = [
   { name: "resume", args: "[number]", description: "List or resume a past session" },
   { name: "metric", args: "[name1 name2 ...]", description: "Show sparklines for named metrics" },
   { name: "metrics", args: "clear", description: "Clear all collected metrics" },
-  { name: "writeup", description: "Generate an experiment writeup from the session" },
+  { name: "skills", description: "List available skills" },
   { name: "machine", args: "<add|rm|list>", description: "Manage remote machines" },
   { name: "machines", description: "List configured remote machines" },
   { name: "hub", args: "[connect|disconnect|status]", description: "AgentHub collaboration (self-register)" },
@@ -149,8 +151,8 @@ export async function handleSlashCommand(
     case "metrics":
       cmdMetric(args, ctx);
       break;
-    case "writeup":
-      await cmdWriteup(ctx);
+    case "skills":
+      cmdSkills(ctx);
       break;
     case "help":
       ctx.addMessage("system", formatHelpText());
@@ -177,8 +179,15 @@ export async function handleSlashCommand(
     case "exit":
       process.exit(0);
       break;
-    default:
+    default: {
+      // Check if it's a skill
+      const skill = ctx.skillRegistry?.get(cmd);
+      if (skill) {
+        await cmdRunSkill(skill, args, ctx);
+        break;
+      }
       ctx.addMessage("system", `Unknown command: /${cmd}. Try /help`);
+    }
   }
 }
 
@@ -656,16 +665,35 @@ function cmdHub(args: string[], ctx: CommandContext): void {
   );
 }
 
-async function cmdWriteup(ctx: CommandContext): Promise<void> {
-  const { orchestrator, messages, addMessage, updateMessage, setIsStreaming } =
-    ctx;
-
-  if (messages.length === 0) {
-    addMessage("system", "No conversation to write up.");
+function cmdSkills(ctx: CommandContext): void {
+  const { addMessage, skillRegistry } = ctx;
+  if (!skillRegistry) {
+    addMessage("system", "Skill system not available.");
     return;
   }
 
-  const transcript = messages
+  const skills = skillRegistry.list();
+  if (skills.length === 0) {
+    addMessage("system", "No skills loaded.");
+    return;
+  }
+
+  const maxLen = skills.reduce(
+    (max, s) => Math.max(max, s.name.length + 3),
+    0,
+  );
+
+  const lines = skills.map((s) => {
+    const tag = s.source === "project" ? " [project]" : "";
+    return `  /${s.name.padEnd(maxLen)}${s.description}${tag}`;
+  });
+
+  addMessage("system", `Skills:\n${lines.join("\n")}`);
+}
+
+/** Build a transcript string from conversation messages. */
+function buildTranscript(messages: Message[]): string {
+  return messages
     .map((m) => {
       if (m.role === "user") return `[USER] ${m.content}`;
       if (m.role === "assistant") return `[ASSISTANT] ${m.content}`;
@@ -679,45 +707,77 @@ async function cmdWriteup(ctx: CommandContext): Promise<void> {
     })
     .filter(Boolean)
     .join("\n\n");
+}
 
-  addMessage("system", "Generating writeup...");
+async function cmdRunSkill(
+  skill: import("../skills/types.js").Skill,
+  args: string[],
+  ctx: CommandContext,
+): Promise<void> {
+  const { orchestrator, messages, addMessage, updateMessage, setIsStreaming } = ctx;
+
+  // Build args map from positional input.
+  // If the skill defines args, map them positionally. Otherwise the joined input is the "input".
+  const argDefs = skill.config.args ? Object.entries(skill.config.args) : [];
+  const argMap: Record<string, string> = {};
+
+  for (let i = 0; i < argDefs.length && i < args.length; i++) {
+    argMap[argDefs[i][0]] = args[i];
+  }
+
+  // Auto-populate {transcript} if not provided
+  argMap.transcript ??= buildTranscript(messages);
+
+  // The user's remaining text (or transcript for writeup-style skills) becomes the input message
+  const userInput = args.join(" ") || `Here is the full experiment session transcript:\n\n${argMap.transcript}`;
+
+  // For looping skills, create an AbortController so Esc/Ctrl+C stops the loop
+  const abortController = skill.config.loop ? new AbortController() : undefined;
+  if (abortController) orchestrator.setActiveAbort(abortController);
+
+  const loopLabel = skill.config.loop
+    ? ` (looping every ${Math.round((skill.config.delay_ms ?? 60_000) / 1000)}s — Esc to stop)`
+    : "";
+  addMessage("system", `Running skill: ${skill.name}${loopLabel}...`);
   setIsStreaming(true);
 
   try {
-    const provider = orchestrator.currentProvider;
-    if (!provider) {
-      addMessage("error", "No active provider");
-      return;
-    }
+    let text = "";
+    let msgId: number | null = null;
 
-    const writeupSession = await provider.createSession({
-      systemPrompt: buildWriteupSystemPrompt({ transcript: true }),
-    });
-
-    try {
-      let writeupText = "";
-      let writeupMsgId: number | null = null;
-
-      for await (const event of provider.send(
-        writeupSession,
-        `Here is the full experiment session transcript:\n\n${transcript}`,
-        [],
-      )) {
-        if (event.type === "text" && event.delta) {
-          writeupText += event.delta;
-          if (writeupMsgId === null) {
-            writeupMsgId = addMessage("assistant", writeupText);
-          } else {
-            updateMessage(writeupMsgId, { content: writeupText });
-          }
+    for await (const event of executeSkill(skill, argMap, userInput, {
+      orchestrator,
+      allTools: orchestrator.getTools(),
+      signal: abortController?.signal,
+    })) {
+      if (event.type === "text" && event.delta) {
+        text += event.delta;
+        if (msgId === null) {
+          msgId = addMessage("assistant", text);
+        } else {
+          updateMessage(msgId, { content: text });
         }
       }
-    } finally {
-      await provider.closeSession(writeupSession).catch(() => {});
+      if (event.type === "error") {
+        addMessage("error", formatError(event.error));
+        if (!event.recoverable) break;
+      }
+      // For looping skills, start a new message for each iteration
+      if (event.type === "done" && skill.config.loop) {
+        text = "";
+        msgId = null;
+      }
     }
   } catch (err) {
-    addMessage("error", `Writeup failed: ${formatError(err)}`);
+    // AbortError is expected when user interrupts a looping skill
+    if (err instanceof DOMException && err.name === "AbortError") {
+      addMessage("system", `Skill "${skill.name}" stopped.`);
+    } else {
+      addMessage("error", `Skill "${skill.name}" failed: ${formatError(err)}`);
+    }
   } finally {
+    abortController?.abort();
+    orchestrator.setActiveAbort(null);
     setIsStreaming(false);
   }
 }

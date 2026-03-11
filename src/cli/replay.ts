@@ -4,6 +4,7 @@
 
 import { Effect } from "effect";
 import { Command, Args, Options } from "@effect/cli";
+import { getAgentId } from "../paths.js";
 
 const sessionId = Args.text({ name: "session-id" }).pipe(
   Args.withDescription("Session ID to replay (use 'helios sessions' to find IDs)"),
@@ -20,7 +21,7 @@ export const replay = Command.make(
   ({ sessionId, raw }) =>
     Effect.promise(async () => {
       const { SessionStore } = await import("../store/session-store.js");
-      const store = new SessionStore(process.env.AGENTHUB_AGENT ?? "");
+      const store = new SessionStore(getAgentId());
 
       const session = store.getSession(sessionId);
       if (!session) {

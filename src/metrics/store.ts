@@ -120,15 +120,6 @@ export class MetricStore {
     return rows.map((r) => r.metric_name);
   }
 
-  /** Get all distinct task IDs that have metrics */
-  getTaskIds(): string[] {
-    const db = getDb();
-    const rows = db
-      .prepare("SELECT DISTINCT task_id FROM metrics WHERE agent_id = ?")
-      .all(this.agentId) as { task_id: string }[];
-    return rows.map((r) => r.task_id);
-  }
-
   /** Get all metric names across all tasks for this agent */
   getAllMetricNames(): string[] {
     const db = getDb();
@@ -279,13 +270,4 @@ export class MetricStore {
     return result;
   }
 
-  /** Clean up metrics older than retentionDays */
-  cleanup(retentionDays: number): number {
-    const db = getDb();
-    const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-    const result = db
-      .prepare("DELETE FROM metrics WHERE timestamp < ? AND agent_id = ?")
-      .run(cutoff, this.agentId);
-    return result.changes;
-  }
 }

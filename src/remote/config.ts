@@ -3,12 +3,7 @@ import { join } from "node:path";
 import type { RemoteMachine } from "./types.js";
 import { HELIOS_DIR } from "../paths.js";
 
-const CONFIG_DIR = HELIOS_DIR;
-const MACHINES_FILE = join(CONFIG_DIR, "machines.json");
-
-function ensureConfigDir(): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-}
+const MACHINES_FILE = join(HELIOS_DIR, "machines.json");
 
 export function loadMachines(): RemoteMachine[] {
   try {
@@ -22,7 +17,7 @@ export function loadMachines(): RemoteMachine[] {
 }
 
 export function saveMachines(machines: RemoteMachine[]): void {
-  ensureConfigDir();
+  mkdirSync(HELIOS_DIR, { recursive: true });
   writeFileSync(MACHINES_FILE, JSON.stringify(machines, null, 2), "utf-8");
 }
 

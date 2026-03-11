@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import type { EventEmitter } from "node:events";
 import { useScreenSize } from "fullscreen-ink";
@@ -19,9 +19,11 @@ import type { HeliosRuntime } from "../init.js";
 import type { Attachment } from "../providers/types.js";
 import { StickyNotesPanel } from "./panels/sticky-notes.js";
 import { VERSION, checkForUpdate } from "../version.js";
-import { handleSlashCommand } from "./commands.js";
+import { COMMANDS, handleSlashCommand } from "./commands.js";
 import { pollTaskStatuses, handleFinishedTasks, buildMonitorMessage } from "../core/task-poller.js";
+import { formatDuration, formatError } from "./format.js";
 import type { Message, ToolData, TaskInfo } from "./types.js";
+import type { SlashCommand } from "./commands.js";
 
 interface LayoutProps {
   runtime: HeliosRuntime;
@@ -44,6 +46,7 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingStartedAt, setStreamingStartedAt] = useState<number | null>(null);
   const scrollRef = useRef<ScrollViewRef>(null);
 
   const [userScrolled, setUserScrolled] = useState(false);
@@ -224,7 +227,12 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
   const addMessage = useCallback(
     (role: Message["role"], content: string, tool?: ToolData): number => {
       const id = ++messageIdCounter;
-      setMessages((prev) => [...prev, { id, role, content, tool }]);
+      setMessages((prev) => {
+        const next = [...prev, { id, role, content, tool }];
+        // Cap at 500 messages to prevent OOM in long sessions.
+        // Old messages are still persisted in the session store.
+        return next.length > 500 ? next.slice(-500) : next;
+      });
       return id;
     },
     [],
@@ -244,7 +252,7 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
         await handleSlashCommand(input, {
           orchestrator, addMessage, updateMessage, setMessages, messages: messagesRef.current, setIsStreaming,
           connectionPool, metricStore, metricCollector, memoryStore,
-          stickyManager, setStickyNotes, executor,
+          stickyManager, setStickyNotes, executor, skillRegistry: runtime.skillRegistry,
           restoreMessages: (msgs) =>
             msgs.map((m) => ({
               id: ++messageIdCounter,
@@ -263,6 +271,8 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
       }
 
       addMessage("user", input);
+      const startedAt = Date.now();
+      setStreamingStartedAt(startedAt);
       setIsStreaming(true);
 
       try {
@@ -317,12 +327,14 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
           }
         }
       } catch (err) {
-        addMessage(
-          "error",
-          err instanceof Error ? err.message : "Unknown error",
-        );
+        addMessage("error", formatError(err));
       } finally {
+        const worked = Date.now() - startedAt;
+        if (worked >= 1000) {
+          addMessage("system", `[Worked for ${formatDuration(worked)}]`);
+        }
         setIsStreaming(false);
+        setStreamingStartedAt(null);
       }
     },
     [orchestrator, sleepManager, addMessage, updateMessage, setMessages, connectionPool, metricStore],
@@ -385,6 +397,18 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
   }, [sleepManager]);
 
   const isSleeping = sleepManager.isSleeping;
+
+  // Merge static commands with dynamic skill commands for autocomplete
+  const allCommands = useMemo<SlashCommand[]>(() => {
+    const skillCmds = runtime.skillRegistry.list().map((s) => ({
+      name: s.name,
+      args: s.config.args
+        ? Object.keys(s.config.args).map((k) => `<${k}>`).join(" ")
+        : undefined,
+      description: s.description,
+    }));
+    return [...COMMANDS, ...skillCmds];
+  }, [runtime.skillRegistry]);
 
   const metricsRows = metricData.size > 0 ? metricData.size : 1;
   const tasksRows = tasks.length > 0 ? Math.min(tasks.length, 5) : 1;
@@ -482,12 +506,13 @@ export function Layout({ runtime, mouseEmitter, headless, initialPrompt, initial
         </Box>
 
         {!headless && <Box flexShrink={0}><KeyHintRule /></Box>}
-        <Box flexShrink={0}><StatusBar orchestrator={orchestrator} sleepManager={sleepManager} monitorManager={monitorManager} /></Box>
+        <Box flexShrink={0}><StatusBar orchestrator={orchestrator} sleepManager={sleepManager} monitorManager={monitorManager} isStreaming={isStreaming} streamingStartedAt={streamingStartedAt} /></Box>
         {!headless && (
           <Box flexShrink={0}>
             <InputBar
               onSubmit={handleSubmit}
               disabled={isStreaming}
+              commands={allCommands}
               placeholder={
                 isSleeping
                   ? "type to wake agent..."
@@ -546,7 +571,15 @@ function ShimmerLogo({ text }: { text: string }) {
   const cycleLen = len + 6 + SHIMMER_PAUSE; // 6 = shimmer tail width
 
   useEffect(() => {
-    const timer = setInterval(() => setFrame((f) => (f + 1) % cycleLen), SHIMMER_INTERVAL);
+    const timer = setInterval(() => {
+      setFrame((f) => {
+        if (f + 1 >= cycleLen) {
+          clearInterval(timer);
+          return f;
+        }
+        return f + 1;
+      });
+    }, SHIMMER_INTERVAL);
     return () => clearInterval(timer);
   }, [cycleLen]);
 

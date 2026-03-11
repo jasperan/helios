@@ -36,6 +36,7 @@ import type { Message } from "../ui/types.js";
 import { VERSION } from "../version.js";
 import { COMMANDS, handleSlashCommand, type CommandContext } from "../ui/commands.js";
 import { pollTaskStatuses, handleFinishedTasks, buildMonitorMessage } from "../core/task-poller.js";
+import { formatError } from "../ui/format.js";
 
 /** Map helios tool names to ACP tool call kinds. */
 function toolKind(name: string): ToolCallKind {
@@ -235,7 +236,7 @@ export class AcpServer {
         }
       }
     } catch (err) {
-      process.stderr.write(`[helios-acp] inject prompt error: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(`[helios-acp] inject prompt error: ${formatError(err)}\n`);
     } finally {
       this.prompting = false;
     }

@@ -61,14 +61,6 @@ export class RemoteExecutor {
     return this.pool.tailFile(machineId, path, lines);
   }
 
-  async gpuStatus(machineId: string): Promise<string> {
-    const result = await this.pool.exec(
-      machineId,
-      "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader",
-    );
-    return result.stdout;
-  }
-
   getBackgroundProcesses(): BackgroundProcess[] {
     return Array.from(this.backgroundProcesses.values());
   }

@@ -5,6 +5,7 @@
 
 import { Effect, Option } from "effect";
 import { Command, Args, Options } from "@effect/cli";
+import { getAgentId } from "../paths.js";
 
 const sessionId = Args.text({ name: "session-id" }).pipe(
   Args.withDescription("Session ID to report on (default: most recent)"),
@@ -24,9 +25,9 @@ export const report = Command.make(
     Effect.promise(async () => {
       const { SessionStore } = await import("../store/session-store.js");
       const { createRuntime } = await import("../init.js");
-      const { buildWriteupSystemPrompt } = await import("../tools/writeup.js");
+      const { executeSkill } = await import("../skills/executor.js");
 
-      const agentId = process.env.AGENTHUB_AGENT ?? "";
+      const agentId = getAgentId();
       const store = new SessionStore(agentId);
 
       // Resolve session
@@ -61,32 +62,36 @@ export const report = Command.make(
         .map((m) => `[${m.role}] ${m.content}`)
         .join("\n\n");
 
-      // Create a runtime to get a provider for the writeup
+      // Create a runtime
       const providerName = Option.getOrUndefined(providerOpt) as "claude" | "openai" | undefined;
       const runtime = await createRuntime({ provider: providerName });
 
-      const activeProvider = runtime.orchestrator.currentProvider;
-      if (!activeProvider) {
+      if (!runtime.orchestrator.currentProvider) {
         process.stderr.write("No active provider. Authenticate first with 'helios auth login'.\n");
+        runtime.cleanup();
+        process.exit(1);
+      }
+
+      const skill = runtime.skillRegistry.get("writeup");
+      if (!skill) {
+        process.stderr.write("writeup skill not found.\n");
         runtime.cleanup();
         process.exit(1);
       }
 
       process.stderr.write("Generating report...\n");
 
-      const session = await activeProvider.createSession({
-        systemPrompt: buildWriteupSystemPrompt({ transcript: true }),
-      });
-
       try {
-        for await (const event of activeProvider.send(session, transcript, [])) {
+        for await (const event of executeSkill(skill, {}, transcript, {
+          orchestrator: runtime.orchestrator,
+          allTools: runtime.orchestrator.getTools(),
+        })) {
           if (event.type === "text" && event.delta) {
             process.stdout.write(event.delta);
           }
         }
         process.stdout.write("\n");
       } finally {
-        await activeProvider.closeSession(session).catch(() => {});
         runtime.cleanup();
       }
     }),

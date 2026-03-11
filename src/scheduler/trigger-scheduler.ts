@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { formatError } from "../ui/format.js";
 import type {
   Trigger,
   TriggerExpression,
@@ -115,8 +116,7 @@ export class TriggerScheduler extends EventEmitter {
 
         this.emit("trigger-update", trigger);
       } catch (err) {
-        trigger.lastError =
-          err instanceof Error ? err.message : String(err);
+        trigger.lastError = formatError(err);
         this.emit(
           "error",
           err instanceof Error ? err : new Error(String(err)),

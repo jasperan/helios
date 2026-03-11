@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../providers/types.js";
 import type { MemoryStore } from "../memory/memory-store.js";
+import { toolError } from "../ui/format.js";
 
 export function createMemoryLsTool(memory: MemoryStore): ToolDefinition {
   return {
@@ -55,7 +56,7 @@ export function createMemoryReadTool(memory: MemoryStore): ToolDefinition {
       const node = memory.read(path);
 
       if (!node) {
-        return JSON.stringify({ error: `Not found: ${path}` });
+        return toolError(`Not found: ${path}`);
       }
 
       return JSON.stringify({

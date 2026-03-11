@@ -11,6 +11,7 @@ import { exec as cpExec } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { formatBytes, formatError } from "../ui/format.js";
+import { getAgentId } from "../paths.js";
 
 // ── Formatting helpers ──────────────────────────────────
 
@@ -271,7 +272,7 @@ async function checkStorage(): Promise<void> {
         try {
           const { getDb } = await import("../store/database.js");
           const db = getDb();
-          const agentId = process.env.AGENTHUB_AGENT ?? "";
+          const agentId = getAgentId();
           const row = db.prepare("SELECT COUNT(*) AS cnt FROM sessions WHERE agent_id = ?").get(agentId) as { cnt: number } | undefined;
           sessionCount = row?.cnt ?? null;
         } catch {

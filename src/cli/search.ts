@@ -4,6 +4,7 @@
 
 import { Effect } from "effect";
 import { Command, Args, Options } from "@effect/cli";
+import { getAgentId } from "../paths.js";
 
 const query = Args.text({ name: "query" }).pipe(
   Args.withDescription("Text to search for across all sessions"),
@@ -24,7 +25,7 @@ export const search = Command.make(
       const { truncate } = await import("../ui/format.js");
 
       const db = getDb();
-      const agentId = process.env.AGENTHUB_AGENT ?? "";
+      const agentId = getAgentId();
 
       // Search messages with LIKE (SQLite doesn't have full-text by default)
       const rows = db.prepare(

@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "../providers/types.js";
 import type { ConnectionPool } from "../remote/connection-pool.js";
-import { shellQuote } from "../ui/format.js";
+import { shellQuote, toolError } from "../ui/format.js";
 
 export function createReadFileTool(pool: ConnectionPool): ToolDefinition {
   return {
@@ -42,7 +42,7 @@ export function createReadFileTool(pool: ConnectionPool): ToolDefinition {
       );
 
       if (result.exitCode !== 0) {
-        return JSON.stringify({ error: result.stderr.trim() || `exit code ${result.exitCode}` });
+        return toolError(result.stderr.trim() || `exit code ${result.exitCode}`);
       }
 
       // Count total lines for context
@@ -107,7 +107,7 @@ export function createWriteFileTool(pool: ConnectionPool): ToolDefinition {
       );
 
       if (result.exitCode !== 0) {
-        return JSON.stringify({ error: result.stderr.trim() || `exit code ${result.exitCode}` });
+        return toolError(result.stderr.trim() || `exit code ${result.exitCode}`);
       }
 
       const wcResult = await pool.exec(machineId, `wc -l < ${shellQuote(path)}`);
@@ -154,17 +154,17 @@ export function createPatchFileTool(pool: ConnectionPool): ToolDefinition {
       // Read current file
       const readResult = await pool.exec(machineId, `cat ${shellQuote(path)}`);
       if (readResult.exitCode !== 0) {
-        return JSON.stringify({ error: readResult.stderr.trim() || "Failed to read file" });
+        return toolError(readResult.stderr.trim() || "Failed to read file");
       }
 
       const content = readResult.stdout;
       const count = content.split(oldStr).length - 1;
 
       if (count === 0) {
-        return JSON.stringify({ error: "old_string not found in file" });
+        return toolError("old_string not found in file");
       }
       if (count > 1) {
-        return JSON.stringify({ error: `old_string found ${count} times — must be unique. Include more surrounding context.` });
+        return toolError(`old_string found ${count} times — must be unique. Include more surrounding context.`);
       }
 
       const patched = content.replace(oldStr, newStr);
@@ -179,7 +179,7 @@ export function createPatchFileTool(pool: ConnectionPool): ToolDefinition {
       );
 
       if (writeResult.exitCode !== 0) {
-        return JSON.stringify({ error: writeResult.stderr.trim() || "Failed to write file" });
+        return toolError(writeResult.stderr.trim() || "Failed to write file");
       }
 
       return JSON.stringify({ patched: path });

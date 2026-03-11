@@ -155,14 +155,12 @@ export class SleepManager extends EventEmitter {
 
     // Latest metric values
     if (this.metricStore) {
-      const names = this.metricStore.getAllMetricNames();
-      if (names.length > 0) {
+      const latest = this.metricStore.getLatestPerMetric();
+      const entries = Object.entries(latest);
+      if (entries.length > 0) {
         parts.push("", "Latest metrics:");
-        for (const name of names.slice(0, 10)) {
-          const series = this.metricStore.getSeriesAcrossTasks(name, 1);
-          if (series.length > 0) {
-            parts.push(`  ${name}: ${series[0].value}`);
-          }
+        for (const [name, value] of entries.slice(0, 10)) {
+          parts.push(`  ${name}: ${value}`);
         }
       }
     }

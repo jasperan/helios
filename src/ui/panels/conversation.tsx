@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo, useMemo } from "react";
 import { Box, Text } from "ink";
 import { C, G, METRIC_COLORS, nameHash } from "../theme.js";
 import { renderMarkdown } from "../markdown.js";
@@ -31,7 +31,7 @@ export function ConversationPanel({
   );
 }
 
-function MessageLine({ message }: { message: Message }) {
+const MessageLine = memo(function MessageLine({ message }: { message: Message }) {
   const { role, content, tool } = message;
 
   switch (role) {
@@ -46,11 +46,7 @@ function MessageLine({ message }: { message: Message }) {
       );
 
     case "assistant":
-      return (
-        <Box paddingLeft={2}>
-          <Text wrap="wrap">{renderMarkdown(content)}</Text>
-        </Box>
-      );
+      return <AssistantMessage content={content} />;
 
     case "tool":
       return tool ? <ToolCallBlock tool={tool} /> : null;
@@ -76,6 +72,15 @@ function MessageLine({ message }: { message: Message }) {
         </Box>
       );
   }
+});
+
+function AssistantMessage({ content }: { content: string }) {
+  const rendered = useMemo(() => renderMarkdown(content), [content]);
+  return (
+    <Box paddingLeft={2}>
+      <Text wrap="wrap">{rendered}</Text>
+    </Box>
+  );
 }
 
 const PULSE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

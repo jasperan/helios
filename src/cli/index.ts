@@ -12,6 +12,7 @@
  *   helios watch <machine:pid>      Stream task output + metrics
  *   helios replay <session-id>      Replay a past session
  *   helios report [session-id]      Generate experiment writeup
+ *   helios discover [interests]    Background literature discovery
  *   helios init                     Initialize project config
  *   helios doctor                    Diagnose setup
  *   helios search "query"            Search session histories
@@ -21,7 +22,7 @@
 
 import { Command } from "@effect/cli";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { VERSION } from "../version.js";
 import {
   provider, claudeMode, model,
@@ -42,6 +43,7 @@ import { doctor } from "./doctor.js";
 import { search } from "./search.js";
 import { exportCmd } from "./export.js";
 import { kill } from "./kill.js";
+import { discover } from "./discover.js";
 
 // ── Root command ─────────────────────────────────────────
 
@@ -77,7 +79,7 @@ const helios = Command.make(
       });
     }),
 ).pipe(
-  Command.withSubcommands([auth, sessions, watch, replay, report, initCmd, doctor, search, exportCmd, kill]),
+  Command.withSubcommands([auth, sessions, watch, replay, report, discover, initCmd, doctor, search, exportCmd, kill]),
 );
 
 // ── Launch ───────────────────────────────────────────────

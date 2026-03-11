@@ -1,7 +1,8 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import type { ToolDefinition } from "../providers/types.js";
-import { formatError } from "../ui/format.js";
+import { formatError, toolError } from "../ui/format.js";
+import { fetchWithRetry } from "../providers/retry.js";
 
 export function createWebFetchTool(): ToolDefinition {
   return {
@@ -27,7 +28,7 @@ export function createWebFetchTool(): ToolDefinition {
       const maxLength = (args.max_length as number) ?? 20000;
 
       try {
-        const resp = await fetch(url, {
+        const resp = await fetchWithRetry(url, {
           headers: {
             "User-Agent": "Helios-ML-Agent/1.0",
             Accept: "text/html,application/xhtml+xml,application/pdf,text/plain,application/json",
@@ -37,7 +38,7 @@ export function createWebFetchTool(): ToolDefinition {
         });
 
         if (!resp.ok) {
-          return JSON.stringify({ error: `HTTP ${resp.status}: ${resp.statusText}` });
+          return toolError(`HTTP ${resp.status}: ${resp.statusText}`);
         }
 
         const contentType = resp.headers.get("content-type") ?? "";
@@ -70,9 +71,7 @@ export function createWebFetchTool(): ToolDefinition {
           content,
         });
       } catch (err) {
-        return JSON.stringify({
-          error: formatError(err),
-        });
+        return toolError(err);
       }
     },
   };

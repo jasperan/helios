@@ -11,6 +11,8 @@ import type {
 import { execSync } from "node:child_process";
 import { z } from "zod";
 import { TransientError, isTransient, sleep } from "../retry.js";
+import { formatError } from "../../ui/format.js";
+import { WEB_SEARCH_TOOL } from "../../paths.js";
 import {
   CHECKPOINT_ACK,
   type ModelProvider,
@@ -419,7 +421,7 @@ export class ClaudeProvider implements ModelProvider {
             try {
               result = await tool.execute(tc.args);
             } catch (err) {
-              result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              result = `Error: ${formatError(err)}`;
               isError = true;
             }
           }
@@ -480,21 +482,23 @@ export class ClaudeProvider implements ModelProvider {
   ): AsyncGenerator<StreamResult> {
     this.abortController = new AbortController();
 
-    const functionTools = tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: {
-        type: "object" as const,
-        properties: t.parameters.properties,
-        required: t.parameters.required,
-      },
-    }));
+    const hasWebSearch = tools.some((t) => t.name === WEB_SEARCH_TOOL);
+    const functionTools = tools
+      .filter((t) => t.name !== WEB_SEARCH_TOOL)
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: {
+          type: "object" as const,
+          properties: t.parameters.properties,
+          required: t.parameters.required,
+        },
+      }));
 
-    // Include Anthropic's built-in web search as a server tool
-    const toolDefs: unknown[] = [
-      ...functionTools,
-      { type: "web_search_20250305", name: "web_search", max_uses: 5 },
-    ];
+    const toolDefs: unknown[] = [...functionTools];
+    if (hasWebSearch) {
+      toolDefs.push({ type: "web_search_20250305", name: "web_search", max_uses: 5 });
+    }
 
     const budgetTokens = THINKING_BUDGETS[this.reasoningEffort] ?? THINKING_BUDGETS.medium;
     const maxTokens = Math.max(16384, budgetTokens + 8192);
@@ -680,7 +684,8 @@ export class ClaudeProvider implements ModelProvider {
   }
 
   private buildMcpServer(tools: ToolDefinition[]) {
-    const mcpTools = tools.map((t) =>
+    // Filter out web_search marker — handled natively by the provider, not as an MCP tool
+    const mcpTools = tools.filter((t) => t.name !== WEB_SEARCH_TOOL).map((t) =>
       sdkTool(
         t.name,
         t.description,
@@ -696,7 +701,7 @@ export class ClaudeProvider implements ModelProvider {
             }
             return { content: [{ type: "text" as const, text: result }] };
           } catch (err) {
-            const errText = `Error: ${err instanceof Error ? err.message : String(err)}`;
+            const errText = `Error: ${formatError(err)}`;
             if (callId) {
               this.cliToolResults.push({ callId, result: errText, isError: true });
             }
@@ -816,5 +821,3 @@ export class ClaudeProvider implements ModelProvider {
     }
   }
 }
-
-/** Error subclass for transient failures that should be retried. */
