@@ -13,6 +13,7 @@ import { SessionStore } from "../store/session-store.js";
 import { savePreferences } from "../store/preferences.js";
 import type { ContextGate } from "../memory/context-gate.js";
 import type { StickyManager } from "./stickies.js";
+import { debugLog } from "../paths.js";
 
 export interface OrchestratorConfig {
   defaultProvider: "claude" | "openai";
@@ -75,6 +76,7 @@ export class Orchestrator {
   async switchProvider(name: "claude" | "openai"): Promise<void> {
     const provider = this.providers.get(name);
     if (!provider) throw new Error(`Provider "${name}" not registered`);
+    debugLog("orchestrator", "switching provider", name);
 
     // Clean up old session before switching
     if (this.activeSession && this.activeProvider) {
@@ -83,6 +85,7 @@ export class Orchestrator {
     }
 
     await provider.authenticate();
+    debugLog("orchestrator", "authenticated", name);
 
     this.activeProvider = provider;
     savePreferences({ lastProvider: name });
@@ -146,6 +149,7 @@ export class Orchestrator {
     }
 
     const session = await this.ensureSession();
+    debugLog("orchestrator", "send", { provider: this.activeProvider!.name, model: this.activeProvider!.currentModel, session: session.id, messageLen: message.length });
     this.sessionStore.updateLastActive(session.id);
     this.sessionStore.addMessage(session.id, "user", message);
 
@@ -171,6 +175,7 @@ export class Orchestrator {
       }
 
       if (event.type === "done") {
+        debugLog("orchestrator", "done", event.usage ?? {});
         if (event.usage) {
           this.addCost(event.usage.costUsd ?? 0, event.usage.inputTokens, event.usage.outputTokens);
         }

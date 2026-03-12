@@ -27,11 +27,12 @@ import { VERSION } from "../version.js";
 import {
   provider, claudeMode, model,
   continueSession, resumeSession,
-  print, headless,
+  print, headless, debug,
   home, hubUrl, hubKey, agent,
   files, prompt,
 } from "./options.js";
 import { applyEnv } from "./env.js";
+import { debugLog } from "../paths.js";
 import { run } from "./run.js";
 import { auth } from "./auth.js";
 import { sessions } from "./sessions.js";
@@ -52,13 +53,20 @@ const helios = Command.make(
   {
     provider, claudeMode, model,
     continueSession, resumeSession,
-    print, headless,
+    print, headless, debug,
     home, hubUrl, hubKey, agent,
     files, prompt,
   },
   (opts) =>
     Effect.gen(function* () {
       // Set env vars before any runtime imports
+      if (opts.debug) process.env.HELIOS_DEBUG = "1";
+
+      if (process.env.HELIOS_DEBUG === "1") {
+        debugLog("cli", "helios starting", { args: process.argv.slice(2) });
+        process.stderr.write("[helios] debug mode enabled — logging to ~/.helios/debug.log\n");
+      }
+
       applyEnv({
         home: opts.home,
         hubUrl: opts.hubUrl,

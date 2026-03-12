@@ -24,7 +24,7 @@ import { MonitorManager } from "./core/monitor.js";
 import { loadHubConfig } from "./hub/config.js";
 import { HubClient } from "./hub/client.js";
 import { formatError, toolError } from "./ui/format.js";
-import { getAgentId, WEB_SEARCH_TOOL } from "./paths.js";
+import { getAgentId, WEB_SEARCH_TOOL, debugLog, isDebug } from "./paths.js";
 import { loadMachines } from "./remote/config.js";
 import { loadPreferences } from "./store/preferences.js";
 import { SessionStore } from "./store/session-store.js";
@@ -289,6 +289,10 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   const initialProvider = options.provider ?? projectConfig?.provider ?? prefs.lastProvider ?? "claude";
   const initialClaudeMode = options.claudeMode ?? prefs.claudeAuthMode;
   const agentId = getAgentId();
+
+  if (isDebug()) {
+    debugLog("init", "starting runtime", { provider: initialProvider, claudeMode: initialClaudeMode, agentId: agentId || undefined, projectConfig: projectConfig ? "found" : "none" });
+  }
 
   // Auth
   const authManager = new AuthManager();

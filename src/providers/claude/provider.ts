@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import { z } from "zod";
 import { TransientError, isTransient, sleep } from "../retry.js";
 import { formatError } from "../../ui/format.js";
-import { WEB_SEARCH_TOOL } from "../../paths.js";
+import { WEB_SEARCH_TOOL, debugLog } from "../../paths.js";
 import {
   CHECKPOINT_ACK,
   type ModelProvider,
@@ -268,10 +268,13 @@ export class ClaudeProvider implements ModelProvider {
     this.cliPendingByName.clear();
     this.cliToolResults = [];
 
+    debugLog("claude-sdk", "creating query", { model: options.model, resume: options.resume ?? null, tools: tools.map(t => t.name) });
+
     let q: Query;
     try {
       q = sdkQuery({ prompt: message, options });
     } catch (err) {
+      debugLog("claude-sdk", "query creation failed", formatError(err));
       // If resume fails at creation, retry without resume
       if (allowRetry && sdkSessionId) {
         this.sdkSessionIds.delete(session.id);
@@ -284,11 +287,18 @@ export class ClaudeProvider implements ModelProvider {
 
     try {
       for await (const msg of q) {
+        if (msg.type === "result" || msg.type === "system") {
+          debugLog("claude-sdk", "message", msg);
+        } else {
+          debugLog("claude-sdk", "message", { type: msg.type, ...("subtype" in msg ? { subtype: msg.subtype } : {}) });
+        }
+
         if (
           "session_id" in msg &&
           msg.session_id &&
           !this.sdkSessionIds.has(session.id)
         ) {
+          debugLog("claude-sdk", "session established", msg.session_id);
           this.sdkSessionIds.set(session.id, msg.session_id);
           session.providerSessionId = msg.session_id;
         }
@@ -297,6 +307,7 @@ export class ClaudeProvider implements ModelProvider {
         if (msg.type === "result" && msg.subtype !== "success" && allowRetry && sdkSessionId) {
           const errMsg = msg as { errors?: string[] };
           const errors = errMsg.errors?.join(" ") ?? "";
+          debugLog("claude-sdk", "result error", { subtype: (msg as any).subtype, errors });
           if (errors.includes("No conversation found") || errors.includes("session")) {
             this.sdkSessionIds.delete(session.id);
             this.activeQuery = null;
@@ -523,6 +534,8 @@ export class ClaudeProvider implements ModelProvider {
     }
     body.tools = toolDefs;
 
+    debugLog("claude-api", "request", { model: body.model, messages: history.length, tools: toolDefs.length, maxTokens: body.max_tokens });
+
     const resp = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
@@ -537,6 +550,7 @@ export class ClaudeProvider implements ModelProvider {
     if (!resp.ok) {
       const errText = await resp.text();
       const status = resp.status;
+      debugLog("claude-api", "error response", { status, body: errText });
       if (status === 429 || status >= 500) {
         throw new TransientError(`Anthropic API error: ${status} ${errText}`);
       }
@@ -795,6 +809,7 @@ export class ClaudeProvider implements ModelProvider {
       }
 
       case "result": {
+        debugLog("claude-sdk", "result", { subtype: msg.subtype, usage: (msg as any).usage, cost: (msg as any).total_cost_usd, model: (msg as any).model, errors: (msg as any).errors });
         if (msg.subtype === "success") {
           yield {
             type: "done",

@@ -50,6 +50,11 @@ export const headless = Options.boolean("headless").pipe(
   Options.withDefault(false),
 );
 
+export const debug = Options.boolean("debug").pipe(
+  Options.withDescription("Enable debug output (verbose logging to stderr)"),
+  Options.withDefault(false),
+);
+
 // ── Paths & hub ──────────────────────────────────────────
 
 export const home = Options.directory("home").pipe(

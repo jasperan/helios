@@ -2,6 +2,7 @@ import { Client } from "ssh2";
 import { exec as cpExec, spawn } from "node:child_process";
 import { readFileSync, openSync, closeSync } from "node:fs";
 import { shellQuote, formatError } from "../ui/format.js";
+import { debugLog } from "../paths.js";
 import type {
   RemoteMachine,
   ExecResult,
@@ -78,8 +79,11 @@ export class ConnectionPool {
 
     const client = new Client();
 
+    debugLog("ssh", "connecting", { machine: machineId, host: machine.host, port: machine.port });
+
     return new Promise((resolve, reject) => {
       client.on("ready", () => {
+        debugLog("ssh", "connected", machineId);
         this.connections.set(machineId, {
           client,
           machine,
@@ -91,6 +95,7 @@ export class ConnectionPool {
       });
 
       client.on("error", (err) => {
+        debugLog("ssh", "error", { machine: machineId, error: formatError(err) });
         const errMsg = formatError(err);
         const conn = this.connections.get(machineId);
         if (conn) {

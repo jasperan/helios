@@ -13,7 +13,7 @@ import {
 import type { AuthManager } from "../auth/auth-manager.js";
 import { TransientError, isTransient, sleep } from "../retry.js";
 import { formatError } from "../../ui/format.js";
-import { WEB_SEARCH_TOOL } from "../../paths.js";
+import { WEB_SEARCH_TOOL, debugLog } from "../../paths.js";
 import { parseSSELines } from "../sse.js";
 import { SessionStore } from "../../store/session-store.js";
 import { OpenAIOAuth } from "./oauth.js";
@@ -244,6 +244,7 @@ export class OpenAIProvider implements ModelProvider {
 
       if (result.toolCalls.length > 0) {
         for (const tc of result.toolCalls) {
+          debugLog("openai", "tool_call", { name: tc.name, args: tc.args });
           yield {
             type: "tool_call",
             id: tc.call_id,
@@ -267,6 +268,7 @@ export class OpenAIProvider implements ModelProvider {
             }
           }
 
+          debugLog("openai", "tool_result", { name: tc.name, isError, resultLen: toolResult.length });
           yield { type: "tool_result", callId: tc.call_id, result: toolResult, isError };
 
           history.push({
@@ -379,6 +381,8 @@ export class OpenAIProvider implements ModelProvider {
       include: [],
     };
 
+    debugLog("openai-api", "request", { model: body.model, input: input.length, tools: toolDefs.length });
+
     const resp = await fetch(CODEX_API_URL, {
       method: "POST",
       headers: {
@@ -394,6 +398,7 @@ export class OpenAIProvider implements ModelProvider {
     if (!resp.ok) {
       const errText = await resp.text();
       const status = resp.status;
+      debugLog("openai-api", "error response", { status, body: errText });
       if (status === 429 || status >= 500) {
         throw new TransientError(`OpenAI API error: ${status} ${errText}`);
       }
