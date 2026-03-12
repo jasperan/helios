@@ -164,27 +164,32 @@ export class Orchestrator {
 
     let fullResponse = "";
 
-    for await (const event of this.activeProvider!.send(
-      session,
-      augmentedMessage,
-      this.tools,
-      attachments,
-    )) {
-      if (event.type === "text" && event.delta) {
-        fullResponse += event.delta;
-      }
-
-      if (event.type === "done") {
-        debugLog("orchestrator", "done", event.usage ?? {});
-        if (event.usage) {
-          this.addCost(event.usage.costUsd ?? 0, event.usage.inputTokens, event.usage.outputTokens);
+    try {
+      for await (const event of this.activeProvider!.send(
+        session,
+        augmentedMessage,
+        this.tools,
+        attachments,
+      )) {
+        if (event.type === "text" && event.delta) {
+          fullResponse += event.delta;
         }
-        if (event.usage?.inputTokens) {
-          this._lastInputTokens = event.usage.inputTokens;
-        }
-      }
 
-      yield event;
+        if (event.type === "done") {
+          debugLog("orchestrator", "done", event.usage ?? {});
+          if (event.usage) {
+            this.addCost(event.usage.costUsd ?? 0, event.usage.inputTokens, event.usage.outputTokens);
+          }
+          if (event.usage?.inputTokens) {
+            this._lastInputTokens = event.usage.inputTokens;
+          }
+        }
+
+        yield event;
+      }
+    } catch (err) {
+      debugLog("orchestrator", "ERROR", { message: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+      throw err;
     }
 
     // Check if context window is filling up — trigger checkpoint if needed

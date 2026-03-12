@@ -324,6 +324,9 @@ export class ClaudeProvider implements ModelProvider {
           yield { type: "tool_result", callId: tr.callId, result: tr.result, isError: tr.isError };
         }
       }
+    } catch (err) {
+      debugLog("claude-sdk", "ERROR", { message: formatError(err), stack: err instanceof Error ? err.stack : undefined });
+      throw err;
     } finally {
       this.activeQuery = null;
       this.cliPendingByName.clear();
