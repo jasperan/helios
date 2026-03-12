@@ -2,11 +2,30 @@ import type { ToolDefinition } from "../providers/types.js";
 import type { ConnectionPool } from "../remote/connection-pool.js";
 import { shellQuote, toolError } from "../ui/format.js";
 
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const PDF_EXTENSIONS = new Set([".pdf"]);
+const MAX_BINARY_SIZE = 10 * 1024 * 1024; // 10MB raw
+const MAX_BINARY_OUTPUT = 14 * 1024 * 1024; // ~14MB for base64-encoded output
+
+const MIME_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".pdf": "application/pdf",
+};
+
+function getExtension(path: string): string {
+  const dot = path.lastIndexOf(".");
+  return dot >= 0 ? path.slice(dot).toLowerCase() : "";
+}
+
 export function createReadFileTool(pool: ConnectionPool): ToolDefinition {
   return {
     name: "read_file",
     description:
-      "Read a file's contents. Use this to inspect training scripts, configs, logs, or any text file.",
+      "Read a file's contents. Supports text files (with line offset/limit), images (.png, .jpg, .jpeg, .gif, .webp), and PDFs (.pdf). For images and PDFs, returns visual content that you can see directly.",
     parameters: {
       type: "object",
       properties: {
@@ -20,11 +39,11 @@ export function createReadFileTool(pool: ConnectionPool): ToolDefinition {
         },
         offset: {
           type: "number",
-          description: "Line number to start from (1-indexed, default: 1)",
+          description: "Line number to start from (1-indexed, default: 1). Ignored for images/PDFs.",
         },
         limit: {
           type: "number",
-          description: "Max lines to return (default: 200)",
+          description: "Max lines to return (default: 200). Ignored for images/PDFs.",
         },
       },
       required: ["machine_id", "path"],
@@ -32,9 +51,46 @@ export function createReadFileTool(pool: ConnectionPool): ToolDefinition {
     execute: async (args) => {
       const machineId = args.machine_id as string;
       const path = args.path as string;
+      const ext = getExtension(path);
+
+      // Binary file — base64 encode for multimodal viewing
+      if (IMAGE_EXTENSIONS.has(ext) || PDF_EXTENSIONS.has(ext)) {
+        const sizeResult = await pool.exec(machineId, `wc -c < ${shellQuote(path)}`);
+        if (sizeResult.exitCode !== 0) {
+          return toolError(sizeResult.stderr.trim() || `File not found: ${path}`);
+        }
+        const fileSize = parseInt(sizeResult.stdout.trim(), 10);
+        if (isNaN(fileSize) || fileSize === 0) {
+          return toolError("File is empty or not found");
+        }
+        if (fileSize > MAX_BINARY_SIZE) {
+          return toolError(`File too large (${(fileSize / 1024 / 1024).toFixed(1)}MB). Max for visual reading: 10MB.`);
+        }
+
+        const b64Result = await pool.exec(
+          machineId,
+          `base64 < ${shellQuote(path)}`,
+          { maxOutput: MAX_BINARY_OUTPUT },
+        );
+        if (b64Result.exitCode !== 0) {
+          return toolError(b64Result.stderr.trim() || "Failed to read file");
+        }
+
+        const mediaType = MIME_TYPES[ext] ?? "application/octet-stream";
+        const data = b64Result.stdout.replace(/\s/g, "");
+        const label = mediaType === "application/pdf" ? "PDF" : "Image";
+        const filename = path.split("/").pop() ?? path;
+
+        return JSON.stringify({
+          __multimodal: true,
+          text: `[${label}: ${filename} (${(fileSize / 1024).toFixed(1)}KB)]`,
+          attachments: [{ mediaType, data }],
+        });
+      }
+
+      // Text file — existing behavior
       const offset = (args.offset as number) ?? 1;
       const limit = (args.limit as number) ?? 200;
-
       const end = offset + limit - 1;
       const result = await pool.exec(
         machineId,

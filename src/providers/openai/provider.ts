@@ -268,13 +268,22 @@ export class OpenAIProvider implements ModelProvider {
             }
           }
 
-          debugLog("openai", "tool_result", { name: tc.name, isError, resultLen: toolResult.length });
+          // Strip multimodal attachments — OpenAI doesn't support visual tool results
+          let outputForHistory = toolResult;
+          try {
+            const parsed = JSON.parse(toolResult);
+            if (parsed?.__multimodal) {
+              outputForHistory = parsed.text ?? "[visual content not supported in this mode]";
+            }
+          } catch { /* not JSON */ }
+
+          debugLog("openai", "tool_result", { name: tc.name, isError, resultLen: outputForHistory.length });
           yield { type: "tool_result", callId: tc.call_id, result: toolResult, isError };
 
           history.push({
             type: "function_call_output",
             call_id: tc.call_id,
-            output: toolResult,
+            output: outputForHistory,
           });
         }
 

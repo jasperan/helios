@@ -49,11 +49,16 @@ interface AnthropicMessage {
   content: string | AnthropicContent[];
 }
 
+type ToolResultContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "document"; source: { type: "base64"; media_type: string; data: string } };
+
 type AnthropicContent =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: "tool_result"; tool_use_id: string; content: string | ToolResultContentBlock[]; is_error?: boolean }
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
   | { type: "document"; source: { type: "base64"; media_type: string; data: string } };
 
@@ -441,12 +446,33 @@ export class ClaudeProvider implements ModelProvider {
           }
 
           yield { type: "tool_result", callId: tc.id, result, isError };
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: tc.id,
-            content: result,
-            is_error: isError,
-          });
+
+          // Check if the tool returned multimodal content (images/PDFs)
+          const multimodal = this.parseMultimodal(result);
+          if (multimodal) {
+            const blocks: ToolResultContentBlock[] = [];
+            for (const att of multimodal.attachments) {
+              if (att.mediaType.startsWith("image/")) {
+                blocks.push({ type: "image", source: { type: "base64", media_type: att.mediaType, data: att.data } });
+              } else if (att.mediaType === "application/pdf") {
+                blocks.push({ type: "document", source: { type: "base64", media_type: att.mediaType, data: att.data } });
+              }
+            }
+            blocks.push({ type: "text", text: multimodal.text });
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tc.id,
+              content: blocks,
+              is_error: isError,
+            });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tc.id,
+              content: result,
+              is_error: isError,
+            });
+          }
         }
 
         history.push({ role: "user", content: toolResults });
@@ -481,9 +507,35 @@ export class ClaudeProvider implements ModelProvider {
         ) {
           return { type: "text" as const, text: `[${block.type} attachment stripped]` } as unknown as typeof block;
         }
+        // Strip multimodal content inside tool_result blocks
+        if (block.type === "tool_result" && Array.isArray(block.content)) {
+          block.content = block.content.map((inner) => {
+            if (
+              (inner.type === "image" || inner.type === "document") &&
+              "source" in inner &&
+              inner.source.data.length > 100
+            ) {
+              return { type: "text" as const, text: `[${inner.type} from tool stripped]` };
+            }
+            return inner;
+          });
+        }
         return block;
       });
     }
+  }
+
+  /** Parse a multimodal tool result payload. */
+  private parseMultimodal(result: string): { text: string; attachments: Array<{ mediaType: string; data: string }> } | null {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed?.__multimodal && Array.isArray(parsed.attachments)) {
+        return { text: parsed.text ?? "", attachments: parsed.attachments };
+      }
+    } catch {
+      // not JSON or not multimodal
+    }
+    return null;
   }
 
   // ─── SSE Streaming for Raw API ──────────────────────
