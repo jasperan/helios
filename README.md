@@ -1,7 +1,9 @@
 # Helios
 
 > [!CAUTION]
-> **Important:** Helios does not currently have a permissions/security model. The agent runs basically unrestricted. You are responsible for any losses of data/other adverse outcomes from running it. If you have stuff you care about, then back it up (whether or not you use Helios, backing up is a good idea!), run Helios in a container, or wait until it has a permissions system.
+> **Important:** Helios does not currently have a permissions/security model. The agent runs basically unrestricted. You are responsible for any losses of data/other adverse outcomes from running it. If you have stuff you care about, then back it up (whether or not you use Helios, backing up is a good idea!), configure Helios to SSH into a container, or wait until it has a permissions system.
+> 
+> Claude mode will not work if you are running as root. It is recommended to instead run Helios on your local computer and set up your remote machine within Helios' SSH configuration. It will forward everything to your remote machine, no server required.
 
 ![Helios screenshot](https://raw.githubusercontent.com/snoglobe/helios/main/media/screnshot.png)
 
