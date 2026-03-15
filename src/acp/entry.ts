@@ -13,7 +13,7 @@ const providerArg = (() => {
   const idx = Math.max(i, j);
   if (idx >= 0) {
     const v = process.argv[idx + 1];
-    if (v === "claude" || v === "openai") return v;
+    if (v === "claude" || v === "openai" || v === "vllm") return v;
   }
   return undefined;
 })();

@@ -42,7 +42,7 @@ export const initCmd = Command.make(
       }
 
       const config: ProjectConfig = {};
-      if (Option.isSome(provider)) config.provider = provider.value as "claude" | "openai";
+      if (Option.isSome(provider)) config.provider = provider.value as "claude" | "openai" | "vllm";
       if (Option.isSome(model)) config.model = model.value;
       if (Option.isSome(machine)) config.defaultMachine = machine.value;
 

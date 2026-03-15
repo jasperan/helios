@@ -30,6 +30,12 @@ Requires Node.js 20+.
 
 **OpenAI** — OAuth login on first run (requires ChatGPT Plus or Pro).
 
+**vLLM** (open weights) — any model served by [vLLM](https://docs.vllm.ai/):
+- Start vLLM: `vllm serve Qwen/Qwen3.5-9B`
+- Set `VLLM_BASE_URL` if not `http://localhost:8000`
+- Set `VLLM_API_KEY` if the server requires auth
+- Default model: `qwen3.5:9b` (auto-detected from server if unavailable)
+
 ## Usage
 
 ```
@@ -40,7 +46,7 @@ helios -c                           Continue most recent session
 helios -r <session-id>              Resume specific session
 
 Options:
-  -p, --provider <claude|openai>    Model provider (default: claude)
+  -p, --provider <claude|openai|vllm> Model provider (default: claude)
   --claude-mode <cli|api>           Claude auth mode (cli = Agent SDK, api = API key)
   -m, --model <model-id>            Model to use
   --headless                        Run without TUI (for scripting/hub agents)
@@ -76,7 +82,7 @@ It will write training scripts, launch runs, parse metrics from stdout, set up m
 
 | Command | Description |
 |---|---|
-| `/switch <claude\|openai>` | Switch model provider |
+| `/switch <claude\|openai\|vllm>` | Switch model provider |
 | `/model <model-id>` | Set model |
 | `/models` | List available models |
 | `/reasoning <level>` | Set reasoning effort (Claude: `medium` `high` `max` / OpenAI: `none` `minimal` `low` `medium` `high` `xhigh`) |
@@ -216,8 +222,8 @@ Run `helios init` to create a `helios.json` in your project root:
 
 ```json
 {
-  "provider": "claude",
-  "model": "claude-opus-4-6",
+  "provider": "vllm",
+  "model": "qwen3.5:9b",
   "defaultMachine": "gpu1",
   "metricNames": ["loss", "acc", "lr"],
   "metricPatterns": {
@@ -249,6 +255,11 @@ Config is auto-discovered by walking up the directory tree. The `instructions` f
 - `gpt-5.1-codex-max` — max compute
 - `gpt-5.1`
 - `gpt-5.1-codex` — codex
+
+**vLLM** (open weights — any model you serve):
+- `qwen3.5:9b` — default, good balance of speed and quality
+- Any model served by vLLM is auto-detected via `/v1/models`
+- Use `/models` to see what's available, `/model <id>` to switch
 
 ## Tools
 

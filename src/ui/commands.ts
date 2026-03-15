@@ -64,7 +64,7 @@ export interface CommandContext {
  */
 export const COMMANDS: SlashCommand[] = [
   { name: "help", description: "Show available commands and keybindings" },
-  { name: "switch", args: "<claude|openai>", description: "Switch model provider" },
+  { name: "switch", args: "<claude|openai|vllm>", description: "Switch model provider" },
   { name: "model", args: "<model-id>", description: "Set model (e.g. gpt-5.4, claude-opus-4-6)" },
   { name: "models", description: "List available models for current provider" },
   { name: "reasoning", args: "<level>", description: "Set reasoning effort (none/low/medium/high/max)" },
@@ -195,9 +195,9 @@ export async function handleSlashCommand(
 
 function cmdSwitch(args: string[], ctx: CommandContext): void {
   const { orchestrator, addMessage } = ctx;
-  const provider = args[0] as "claude" | "openai" | undefined;
-  if (provider !== "claude" && provider !== "openai") {
-    addMessage("system", "Usage: /switch <claude|openai>");
+  const provider = args[0] as "claude" | "openai" | "vllm" | undefined;
+  if (provider !== "claude" && provider !== "openai" && provider !== "vllm") {
+    addMessage("system", "Usage: /switch <claude|openai|vllm>");
     return;
   }
   addMessage("system", `Switching to ${provider}...`);

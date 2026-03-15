@@ -10,7 +10,7 @@ export interface ProviderPrefs {
 }
 
 export interface Preferences {
-  lastProvider?: "claude" | "openai";
+  lastProvider?: "claude" | "openai" | "vllm";
   claudeAuthMode?: "cli" | "api";
   /** @deprecated Use claude.model / openai.model instead */
   model?: string;
@@ -18,6 +18,7 @@ export interface Preferences {
   reasoningEffort?: string;
   claude?: ProviderPrefs;
   openai?: ProviderPrefs;
+  vllm?: ProviderPrefs;
 }
 
 export function loadPreferences(): Preferences {

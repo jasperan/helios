@@ -1,5 +1,5 @@
 import { TokenStore } from "./token-store.js";
-import type { AuthCredentials, AuthMethod } from "../types.js";
+import type { AuthCredentials, AuthMethod, ProviderName } from "../types.js";
 
 export class AuthManager {
   readonly tokenStore: TokenStore;
@@ -22,7 +22,7 @@ export class AuthManager {
    * Called automatically when tokens need refreshing.
    */
   registerRefreshHandler(
-    provider: "claude" | "openai",
+    provider: ProviderName,
     handler: (refreshToken: string) => Promise<{
       accessToken: string;
       refreshToken: string;
@@ -33,7 +33,7 @@ export class AuthManager {
   }
 
   async getCredentials(
-    provider: "claude" | "openai",
+    provider: ProviderName,
   ): Promise<AuthCredentials | null> {
     const creds = this.tokenStore.get(provider);
     if (!creds) return null;
@@ -60,7 +60,7 @@ export class AuthManager {
   }
 
   async setApiKey(
-    provider: "claude" | "openai",
+    provider: ProviderName,
     apiKey: string,
   ): Promise<void> {
     this.tokenStore.set(provider, {
@@ -71,7 +71,7 @@ export class AuthManager {
   }
 
   async setOAuthTokens(
-    provider: "claude" | "openai",
+    provider: ProviderName,
     accessToken: string,
     refreshToken: string,
     expiresAt: number,
@@ -85,7 +85,7 @@ export class AuthManager {
     });
   }
 
-  isAuthenticated(provider: "claude" | "openai"): boolean {
+  isAuthenticated(provider: ProviderName): boolean {
     const creds = this.tokenStore.get(provider);
     if (!creds) return false;
     if (creds.method === "api_key") return !!creds.apiKey;
@@ -95,7 +95,7 @@ export class AuthManager {
   }
 
   private async refresh(
-    provider: "claude" | "openai",
+    provider: ProviderName,
     creds: AuthCredentials,
   ): Promise<AuthCredentials> {
     const handler = this.refreshHandlers.get(provider);

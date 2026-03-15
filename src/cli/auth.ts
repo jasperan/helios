@@ -18,7 +18,7 @@ export const login = Command.make(
   { provider: loginProvider },
   ({ provider }) =>
     Effect.promise(async () => {
-      const providerName = Option.getOrElse(provider, () => "claude") as "claude" | "openai";
+      const providerName = Option.getOrElse(provider, () => "claude") as "claude" | "openai" | "vllm";
 
       const { AuthManager } = await import("../providers/auth/auth-manager.js");
       const { OpenAIOAuth } = await import("../providers/openai/oauth.js");
@@ -61,7 +61,7 @@ export const logout = Command.make(
       const authManager = new AuthManager();
 
       if (Option.isSome(provider)) {
-        authManager.tokenStore.clear(provider.value as "claude" | "openai");
+        authManager.tokenStore.clear(provider.value as "claude" | "openai" | "vllm");
         console.log(`Logged out from ${provider.value}.`);
       } else {
         authManager.tokenStore.clear("claude");

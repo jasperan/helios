@@ -12,7 +12,7 @@ export interface SubagentInfo {
   depth: number;
   task: string;
   model: string;
-  provider: "claude" | "openai";
+  provider: "claude" | "openai" | "vllm";
   status: SubagentStatus;
   createdAt: number;
   completedAt?: number;
@@ -34,7 +34,7 @@ export interface SubagentInfo {
 export interface SubagentSpawnConfig {
   task: string;
   model?: string;
-  provider?: "claude" | "openai";
+  provider?: "claude" | "openai" | "vllm";
   tools_deny?: string[];
   max_turns?: number;
 }

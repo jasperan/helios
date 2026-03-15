@@ -7,7 +7,7 @@ import { createRuntime, type HeliosRuntime } from "./init.js";
 import type { Attachment } from "./providers/types.js";
 
 interface AppProps {
-  defaultProvider?: "claude" | "openai";
+  defaultProvider?: "claude" | "openai" | "vllm";
   claudeMode?: "cli" | "api";
   mouseEmitter?: EventEmitter;
   headless?: boolean;

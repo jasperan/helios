@@ -63,7 +63,7 @@ export const report = Command.make(
         .join("\n\n");
 
       // Create a runtime
-      const providerName = Option.getOrUndefined(providerOpt) as "claude" | "openai" | undefined;
+      const providerName = Option.getOrUndefined(providerOpt) as "claude" | "openai" | "vllm" | undefined;
       const runtime = await createRuntime({ provider: providerName });
 
       if (!runtime.orchestrator.currentProvider) {

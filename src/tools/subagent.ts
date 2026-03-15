@@ -85,7 +85,7 @@ Default: inherits your current model. Use cheaper models (haiku, codex-mini) for
           {
             task,
             model: args.model as string | undefined,
-            provider: args.provider as "claude" | "openai" | undefined,
+            provider: args.provider as "claude" | "openai" | "vllm" | undefined,
             tools_deny: args.tools_deny as string[] | undefined,
             max_turns: args.max_turns as number | undefined,
           },

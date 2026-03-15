@@ -19,7 +19,7 @@ export interface SkillConfig {
   /** Override reasoning effort (null = inherit). */
   reasoning?: string | null;
   /** "other" routes to the non-active provider (for consult). */
-  provider?: "other" | "claude" | "openai" | null;
+  provider?: "other" | "claude" | "openai" | "vllm" | null;
   /** If true, the skill re-invokes itself in a loop until interrupted. */
   loop?: boolean;
   /** Delay in ms between loop iterations (default: 60000). Only meaningful when loop=true. */

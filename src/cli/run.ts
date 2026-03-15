@@ -19,7 +19,7 @@ export interface RunOptions {
 
 export function run(opts: RunOptions): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const providerArg = Option.getOrUndefined(opts.provider) as "claude" | "openai" | undefined;
+    const providerArg = Option.getOrUndefined(opts.provider) as "claude" | "openai" | "vllm" | undefined;
     const claudeModeArg = Option.getOrUndefined(opts.claudeMode) as "cli" | "api" | undefined;
     const modelArg = Option.getOrUndefined(opts.model);
     const resumeId = Option.getOrUndefined(opts.resumeSession);
@@ -85,7 +85,7 @@ async function loadAttachments(paths: string[]): Promise<Attachment[]> {
 // ── Print mode: run prompt, stream response to stdout, exit ──
 
 interface PrintOpts {
-  provider?: "claude" | "openai";
+  provider?: "claude" | "openai" | "vllm";
   claudeMode?: "cli" | "api";
   model?: string;
   prompt?: string;
@@ -133,7 +133,7 @@ function printMode(opts: PrintOpts): Effect.Effect<void> {
 // ── TUI mode: launch the Ink full-screen UI ──
 
 interface TuiOpts {
-  provider?: "claude" | "openai";
+  provider?: "claude" | "openai" | "vllm";
   claudeMode?: "cli" | "api";
   model?: string;
   headless: boolean;

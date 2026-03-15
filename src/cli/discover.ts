@@ -27,7 +27,7 @@ export const discover = Command.make(
       const { createRuntime } = await import("../init.js");
       const { executeSkill } = await import("../skills/executor.js");
 
-      const providerChoice = Option.getOrUndefined(providerOpt) as "claude" | "openai" | undefined;
+      const providerChoice = Option.getOrUndefined(providerOpt) as "claude" | "openai" | "vllm" | undefined;
       const modelChoice = Option.getOrUndefined(modelOpt);
 
       const runtime = await createRuntime({ provider: providerChoice });

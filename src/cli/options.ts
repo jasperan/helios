@@ -6,7 +6,7 @@ import { Options, Args } from "@effect/cli";
 
 // ── Provider & model ─────────────────────────────────────
 
-export const provider = Options.choice("provider", ["claude", "openai"]).pipe(
+export const provider = Options.choice("provider", ["claude", "openai", "vllm"]).pipe(
   Options.withAlias("P"),
   Options.withDescription("Model provider"),
   Options.optional,

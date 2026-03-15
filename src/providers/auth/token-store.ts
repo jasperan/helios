@@ -1,13 +1,14 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getHeliosDir } from "../../store/database.js";
-import type { AuthCredentials } from "../types.js";
+import type { AuthCredentials, ProviderName } from "../types.js";
 
 const AUTH_FILE = "auth.json";
 
 interface StoredAuth {
   claude?: AuthCredentials;
   openai?: AuthCredentials;
+  vllm?: AuthCredentials;
 }
 
 export class TokenStore {
@@ -34,27 +35,27 @@ export class TokenStore {
     writeFileSync(this.filePath, JSON.stringify(this.data, null, 2), { mode: 0o600 });
   }
 
-  get(provider: "claude" | "openai"): AuthCredentials | null {
+  get(provider: ProviderName): AuthCredentials | null {
     return this.data[provider] ?? null;
   }
 
-  set(provider: "claude" | "openai", creds: AuthCredentials): void {
+  set(provider: ProviderName, creds: AuthCredentials): void {
     this.data[provider] = creds;
     this.save();
   }
 
-  clear(provider: "claude" | "openai"): void {
+  clear(provider: ProviderName): void {
     delete this.data[provider];
     this.save();
   }
 
-  isExpired(provider: "claude" | "openai"): boolean {
+  isExpired(provider: ProviderName): boolean {
     const creds = this.data[provider];
     if (!creds?.expiresAt) return false;
     return Date.now() >= creds.expiresAt;
   }
 
-  needsRefresh(provider: "claude" | "openai"): boolean {
+  needsRefresh(provider: ProviderName): boolean {
     const creds = this.data[provider];
     if (!creds) return true;
     if (creds.method === "api_key") return false;

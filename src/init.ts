@@ -7,6 +7,7 @@ import { AuthManager } from "./providers/auth/auth-manager.js";
 import { OpenAIOAuth } from "./providers/openai/oauth.js";
 import { ClaudeProvider } from "./providers/claude/provider.js";
 import { OpenAIProvider } from "./providers/openai/provider.js";
+import { VLLMProvider } from "./providers/vllm/provider.js";
 import { ConnectionPool } from "./remote/connection-pool.js";
 import { RemoteExecutor } from "./remote/executor.js";
 import { FileSync } from "./remote/file-sync.js";
@@ -309,7 +310,7 @@ export interface HeliosRuntime {
 }
 
 export interface RuntimeOptions {
-  provider?: "claude" | "openai";
+  provider?: "claude" | "openai" | "vllm";
   claudeMode?: "cli" | "api";
 }
 
@@ -348,6 +349,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   // Providers
   const claudeProvider = new ClaudeProvider(authManager, initialClaudeMode, sessionStore);
   const openaiProvider = new OpenAIProvider(authManager, sessionStore);
+  const vllmProvider = new VLLMProvider(sessionStore);
 
   // Remote
   const connPool = new ConnectionPool();
@@ -418,6 +420,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Helio
   orch.setStickyManager(stickies);
   orch.registerProvider(claudeProvider);
   orch.registerProvider(openaiProvider);
+  orch.registerProvider(vllmProvider);
 
   // Skills — seed bundled skills to ~/.helios/skills/ on first launch (or upgrade)
   seedBundledSkills();

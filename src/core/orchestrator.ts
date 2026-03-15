@@ -7,6 +7,7 @@ import type {
   AgentEvent,
   ReasoningEffort,
   Attachment,
+  ProviderName,
 } from "../providers/types.js";
 import { AgentStateMachine } from "./state-machine.js";
 import { SessionStore, isEphemeralSession } from "../store/session-store.js";
@@ -17,7 +18,7 @@ import { debugLog } from "../paths.js";
 import { formatError, truncate } from "../ui/format.js";
 
 export interface OrchestratorConfig {
-  defaultProvider: "claude" | "openai";
+  defaultProvider: ProviderName;
   systemPrompt: string;
   agentId?: string;
   sessionStore?: SessionStore;
@@ -81,7 +82,7 @@ export class Orchestrator {
     return this.activeProvider;
   }
 
-  async switchProvider(name: "claude" | "openai"): Promise<void> {
+  async switchProvider(name: ProviderName): Promise<void> {
     const provider = this.providers.get(name);
     if (!provider) throw new Error(`Provider "${name}" not registered`);
     debugLog("orchestrator", "switching provider", name);
@@ -159,7 +160,7 @@ export class Orchestrator {
     if (!stored) throw new Error(`Session "${sessionId}" not found`);
 
     // Ensure the correct provider is active
-    const providerName = stored.providerId as "claude" | "openai";
+    const providerName = stored.providerId as ProviderName;
     if (!this.activeProvider || this.activeProvider.name !== providerName) {
       await this.switchProvider(providerName);
     }

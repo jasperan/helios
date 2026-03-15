@@ -34,11 +34,16 @@ export function resolveProviderForModel(
   model: string | undefined,
   provider: string | undefined,
   orchestrator: Orchestrator,
-): { provider: "claude" | "openai"; model: string } {
-  if (provider === "claude" || provider === "openai") {
+): { provider: "claude" | "openai" | "vllm"; model: string } {
+  if (provider === "claude" || provider === "openai" || provider === "vllm") {
+    const defaults: Record<string, string> = {
+      claude: "claude-sonnet-4-6",
+      openai: "gpt-5.4",
+      vllm: "qwen3.5:9b",
+    };
     return {
       provider,
-      model: model ?? (provider === "claude" ? "claude-sonnet-4-6" : "gpt-5.4"),
+      model: model ?? defaults[provider],
     };
   }
   if (model) {
@@ -46,10 +51,14 @@ export function resolveProviderForModel(
     if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")) {
       return { provider: "openai", model };
     }
+    // Models that don't match claude/openai patterns are likely open weights on vLLM
+    if (model.startsWith("qwen") || model.startsWith("llama") || model.startsWith("mistral") || model.startsWith("deepseek")) {
+      return { provider: "vllm", model };
+    }
   }
   // Inherit parent
   return {
-    provider: (orchestrator.currentProvider?.name as "claude" | "openai") ?? "claude",
+    provider: (orchestrator.currentProvider?.name as "claude" | "openai" | "vllm") ?? "claude",
     model: model ?? orchestrator.currentModel ?? "claude-sonnet-4-6",
   };
 }

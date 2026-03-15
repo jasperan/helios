@@ -86,10 +86,14 @@ export interface ToolDefinition {
   execute: (args: Record<string, unknown>) => Promise<string>;
 }
 
+// --- Provider Name ---
+
+export type ProviderName = "claude" | "openai" | "vllm";
+
 // --- Provider Interface ---
 
 export interface ModelProvider {
-  readonly name: "claude" | "openai";
+  readonly name: ProviderName;
   readonly displayName: string;
 
   /** Check if the provider is authenticated */
@@ -163,7 +167,7 @@ export type AuthMethod = "api_key" | "oauth";
 
 export interface AuthCredentials {
   method: AuthMethod;
-  provider: "claude" | "openai";
+  provider: ProviderName;
   accessToken?: string;
   refreshToken?: string;
   apiKey?: string;
