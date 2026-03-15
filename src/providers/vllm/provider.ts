@@ -27,6 +27,19 @@ import { SessionStore, createEphemeralSession, parseToolCalls, parseToolResultMe
 const DEFAULT_BASE_URL = "http://localhost:8000";
 const DEFAULT_MODEL = "qwen3.5:9b";
 
+function sanitizeBaseUrl(raw: string): string {
+  const trimmed = raw.replace(/\/+$/, "");
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      throw new Error(`Unsupported protocol: ${u.protocol}`);
+    }
+    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
+  } catch (err) {
+    throw new Error(`Invalid VLLM_BASE_URL "${raw}": ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 // ─── OpenAI chat completions types ──────────────────
 
 interface ChatMessage {
@@ -69,7 +82,7 @@ export class VLLMProvider implements ModelProvider {
   private conversationHistory = new Map<string, ChatMessage[]>();
 
   constructor(sessionStore?: SessionStore) {
-    this.baseUrl = (process.env.VLLM_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = sanitizeBaseUrl(process.env.VLLM_BASE_URL ?? DEFAULT_BASE_URL);
     this.apiKey = process.env.VLLM_API_KEY;
     this.sessionStore = sessionStore ?? new SessionStore();
   }
@@ -89,7 +102,7 @@ export class VLLMProvider implements ModelProvider {
 
   async authenticate(): Promise<void> {
     // Re-read env in case it changed
-    this.baseUrl = (process.env.VLLM_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = sanitizeBaseUrl(process.env.VLLM_BASE_URL ?? DEFAULT_BASE_URL);
     this.apiKey = process.env.VLLM_API_KEY;
 
     const ok = await this.isAuthenticated();
@@ -214,8 +227,11 @@ export class VLLMProvider implements ModelProvider {
     session: Session,
     message: string,
     tools: ToolDefinition[],
-    _attachments?: Attachment[],
+    attachments?: Attachment[],
   ): AsyncGenerator<AgentEvent> {
+    if (attachments && attachments.length > 0) {
+      debugLog("vllm", "attachments not yet supported — ignoring", { count: attachments.length });
+    }
     const history = this.conversationHistory.get(session.id) ?? [];
 
     history.push({ role: "user", content: message });
@@ -377,6 +393,12 @@ export class VLLMProvider implements ModelProvider {
       max_tokens: 16384,
     };
 
+    // Disable thinking mode for Qwen models (vLLM-specific parameter).
+    // Without this, Qwen3.5 burns tokens on internal CoT and may return empty content.
+    if (this.currentModel.toLowerCase().includes("qwen")) {
+      body.chat_template_kwargs = { enable_thinking: false };
+    }
+
     // Add tools if any (filter out web_search — vLLM doesn't support it natively)
     const functionTools = tools
       .filter(t => t.name !== "web_search")
@@ -498,15 +520,19 @@ export class VLLMProvider implements ModelProvider {
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(jsonStr || "{}");
-      } catch {
-        // malformed JSON from model
+      } catch (err) {
+        debugLog("vllm", "malformed tool call JSON", { name: accum.name, json: jsonStr, error: String(err) });
       }
       toolCalls.push({ id: accum.id, name: accum.name, args });
     }
 
+    // Strip residual <think>...</think> blocks (Qwen-family safety net)
+    let finalText = textParts.join("");
+    finalText = finalText.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
     yield {
       kind: "complete",
-      text: textParts.join(""),
+      text: finalText,
       toolCalls,
       usage,
     };
