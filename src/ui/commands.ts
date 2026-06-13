@@ -7,6 +7,7 @@ import type { MetricCollector } from "../metrics/collector.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import type { StickyManager, StickyNote } from "../core/stickies.js";
 import type { ReasoningEffort } from "../providers/types.js";
+import { isProviderName } from "../providers/types.js";
 import type { SessionSummary } from "../store/session-store.js";
 import type { Message } from "./types.js";
 import { formatError, formatMetricValue } from "./format.js";
@@ -195,8 +196,8 @@ export async function handleSlashCommand(
 
 function cmdSwitch(args: string[], ctx: CommandContext): void {
   const { orchestrator, addMessage } = ctx;
-  const provider = args[0] as "claude" | "openai" | "vllm" | undefined;
-  if (provider !== "claude" && provider !== "openai" && provider !== "vllm") {
+  const provider = args[0];
+  if (!isProviderName(provider)) {
     addMessage("system", "Usage: /switch <claude|openai|vllm>");
     return;
   }

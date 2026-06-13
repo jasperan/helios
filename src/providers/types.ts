@@ -88,7 +88,15 @@ export interface ToolDefinition {
 
 // --- Provider Name ---
 
-export type ProviderName = "claude" | "openai" | "vllm";
+/** All known provider names. Single source of truth for the provider triplet. */
+export const PROVIDER_NAMES = ["claude", "openai", "vllm"] as const;
+
+export type ProviderName = (typeof PROVIDER_NAMES)[number];
+
+/** Type guard: is `x` one of the known provider names? */
+export function isProviderName(x: unknown): x is ProviderName {
+  return typeof x === "string" && (PROVIDER_NAMES as readonly string[]).includes(x);
+}
 
 // --- Provider Interface ---
 
@@ -137,7 +145,14 @@ export interface ModelProvider {
 
 // Claude: "medium" | "high" | "max"
 // OpenAI: "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+/** Type guard: is `x` a valid reasoning effort level? */
+export function isReasoningEffort(x: unknown): x is ReasoningEffort {
+  return typeof x === "string" && (REASONING_EFFORTS as readonly string[]).includes(x);
+}
 
 export interface ModelInfo {
   id: string;

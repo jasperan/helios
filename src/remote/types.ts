@@ -3,7 +3,7 @@ export interface RemoteMachine {
   host: string;
   port: number;
   username: string;
-  authMethod: "key" | "agent" | "password";
+  authMethod: "key" | "agent" | "password" | "local";
   keyPath?: string;
   password?: string;
   labels?: string[];

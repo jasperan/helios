@@ -233,7 +233,7 @@ Run `helios init` to create a `helios.json` in your project root:
   "experimentDir": "experiments",
   "notifications": {
     "channels": [{ "type": "desktop" }],
-    "events": ["experiment_complete", "error"]
+    "events": ["task_complete", "task_failed"]
   }
 }
 ```
@@ -310,9 +310,10 @@ Everything is stored locally in `~/.helios/`:
 git clone https://github.com/snoglobe/helios.git
 cd helios
 npm install
-npm run dev          # tsx src/index.tsx
-npm run build        # tsc
-npm start            # node dist/index.js
+npm run dev          # tsx src/bootstrap.ts
+npm run build        # tsc + copy bundled skills to dist/
+npm start            # node dist/bootstrap.js
+npm test             # vitest run
 ```
 
 ## License

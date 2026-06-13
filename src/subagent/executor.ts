@@ -1,5 +1,6 @@
 import type { SubagentInfo, SubagentSpawnConfig, SubagentLogEntry } from "./types.js";
-import type { ToolDefinition, ModelProvider } from "../providers/types.js";
+import type { ToolDefinition, ModelProvider, ProviderName } from "../providers/types.js";
+import { isProviderName } from "../providers/types.js";
 import type { Orchestrator } from "../core/orchestrator.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import type { SubagentManager } from "./manager.js";
@@ -34,8 +35,8 @@ export function resolveProviderForModel(
   model: string | undefined,
   provider: string | undefined,
   orchestrator: Orchestrator,
-): { provider: "claude" | "openai" | "vllm"; model: string } {
-  if (provider === "claude" || provider === "openai" || provider === "vllm") {
+): { provider: ProviderName; model: string } {
+  if (isProviderName(provider)) {
     const defaults: Record<string, string> = {
       claude: "claude-sonnet-4-6",
       openai: "gpt-5.4",
@@ -58,7 +59,7 @@ export function resolveProviderForModel(
   }
   // Inherit parent
   return {
-    provider: (orchestrator.currentProvider?.name as "claude" | "openai" | "vllm") ?? "claude",
+    provider: orchestrator.currentProvider?.name ?? "claude",
     model: model ?? orchestrator.currentModel ?? "claude-sonnet-4-6",
   };
 }

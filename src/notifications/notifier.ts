@@ -6,10 +6,17 @@ export type NotificationChannel =
   | { type: "webhook"; url: string; method?: "GET" | "POST"; headers?: Record<string, string> }
   | { type: "command"; command: string };
 
+/** Events that can trigger a notification. */
+export type NotificationEvent =
+  | "task_complete"
+  | "task_failed"
+  | "metric_threshold"
+  | "agent_idle";
+
 export interface NotificationConfig {
   channels: NotificationChannel[];
   /** Only send notifications for these events. If empty, send all. */
-  events?: ("task_complete" | "task_failed" | "metric_threshold" | "agent_idle")[];
+  events?: NotificationEvent[];
 }
 
 export interface NotificationPayload {
@@ -40,7 +47,7 @@ export class Notifier {
     if (
       this.config.events &&
       this.config.events.length > 0 &&
-      !this.config.events.includes(payload.event as any)
+      !this.config.events.includes(payload.event as NotificationEvent)
     ) {
       return;
     }

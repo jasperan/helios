@@ -14,7 +14,7 @@ export const LOCAL_MACHINE: RemoteMachine = {
   host: "localhost",
   port: 0,
   username: process.env.USER ?? "local",
-  authMethod: "local" as any,
+  authMethod: "local",
   labels: ["local"],
 };
 

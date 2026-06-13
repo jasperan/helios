@@ -49,6 +49,19 @@ interface AnthropicMessage {
   content: string | AnthropicContent[];
 }
 
+/**
+ * Narrow view of the SDK `result` message for the fields Helios actually reads.
+ * The SDK's union types these inconsistently across success/error subtypes, so we
+ * project onto this shape for logging instead of scattering `any` casts.
+ */
+interface SdkResultMessage {
+  subtype?: string;
+  usage?: unknown;
+  total_cost_usd?: number;
+  model?: string;
+  errors?: string[];
+}
+
 type ToolResultContentBlock =
   | { type: "text"; text: string }
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
@@ -390,9 +403,9 @@ export class ClaudeProvider implements ModelProvider {
 
         // Check for SDK errors that indicate stale session — retry without resume
         if (msg.type === "result" && msg.subtype !== "success" && allowRetry && sdkSessionId) {
-          const errMsg = msg as { errors?: string[] };
-          const errors = errMsg.errors?.join(" ") ?? "";
-          debugLog("claude-sdk", "result error", { subtype: (msg as any).subtype, errors });
+          const result = msg as SdkResultMessage;
+          const errors = result.errors?.join(" ") ?? "";
+          debugLog("claude-sdk", "result error", { subtype: result.subtype, errors });
           if (errors.includes("No conversation found") || errors.includes("session")) {
             this.sdkSessionIds.delete(session.id);
             this.activeQuery = null;
@@ -969,7 +982,8 @@ export class ClaudeProvider implements ModelProvider {
       }
 
       case "result": {
-        debugLog("claude-sdk", "result", { subtype: msg.subtype, usage: (msg as any).usage, cost: (msg as any).total_cost_usd, model: (msg as any).model, errors: (msg as any).errors });
+        const result = msg as SdkResultMessage;
+        debugLog("claude-sdk", "result", { subtype: result.subtype, usage: result.usage, cost: result.total_cost_usd, model: result.model, errors: result.errors });
         if (msg.subtype === "success") {
           yield {
             type: "done",
